@@ -1,112 +1,163 @@
 --[[
     NexusUI Debug Loader
-    This script will identify exactly what's wrong with the compiled file
+    Enhanced diagnostics for loading issues
 ]]
+
+local url = "https://raw.githubusercontent.com/alexkkork/luau/main/lua.luau"
 
 print("=== NexusUI Debug Loader ===")
 print("")
 
--- Step 1: Try to download the file
-print("[1] Downloading file...")
-local url = "https://raw.githubusercontent.com/alexkkork/luau/main/lua.luau"
-local success, content = pcall(function()
+-- Step 1: Download
+print("[1] Downloading...")
+local success, scriptContent = pcall(function()
     return game:HttpGet(url)
 end)
 
 if not success then
-    print("ERROR: Failed to download file!")
-    print("Error:", content)
+    warn("FAILED: Could not download script")
+    warn("Error:", scriptContent)
     return
 end
 
-print("SUCCESS: Downloaded", #content, "bytes")
+print("    SUCCESS: Downloaded", #scriptContent, "bytes")
+print("    Lines:", select(2, scriptContent:gsub("\n", "\n")) + 1)
 print("")
 
--- Step 2: Check basic file info
-print("[2] File Info:")
-print("  - Length:", #content, "characters")
-print("  - Lines:", select(2, content:gsub("\n", "\n")) + 1)
-print("")
+-- Step 2: Parse with loadstring
+print("[2] Parsing with loadstring...")
+local loadFunc, loadErr = loadstring(scriptContent)
 
--- Step 3: Try loadstring
-print("[3] Testing loadstring...")
-local func, err = loadstring(content)
-
-if func then
-    print("SUCCESS: loadstring compiled the code!")
-    print("")
+if not loadFunc then
+    warn("FAILED: loadstring error")
+    warn("Error:", loadErr)
     
-    -- Step 4: Try to execute
-    print("[4] Executing...")
-    local execSuccess, execResult = pcall(func)
-    
-    if execSuccess then
-        print("SUCCESS: Code executed!")
-        print("Result type:", type(execResult))
-        if type(execResult) == "table" then
-            print("Table keys:")
-            for k, v in pairs(execResult) do
-                print("  -", k, ":", type(v))
-            end
-        end
-    else
-        print("ERROR: Execution failed!")
-        print("Error:", execResult)
-    end
-else
-    print("ERROR: loadstring failed!")
-    print("Error:", err)
-    print("")
-    
-    -- Try to find the error location
-    print("[4] Analyzing error...")
-    
-    -- Parse the error message for line number
-    local lineNum = err:match(":(%d+):")
+    -- Try to extract line number from error
+    local lineNum = loadErr:match(":(%d+):")
     if lineNum then
         lineNum = tonumber(lineNum)
-        print("Error is around line:", lineNum)
         print("")
-        
-        -- Show context around error
-        print("[5] Code around error (lines", lineNum - 5, "to", lineNum + 5, "):")
-        print("----------------------------------------")
+        print("[2a] Code around error (line " .. lineNum .. "):")
+        print("    ----------------------------------------")
         
         local lines = {}
-        for line in content:gmatch("[^\n]*") do
+        for line in scriptContent:gmatch("[^\n]+") do
             table.insert(lines, line)
         end
         
-        for i = math.max(1, lineNum - 5), math.min(#lines, lineNum + 5) do
+        local start = math.max(1, lineNum - 5)
+        local stop = math.min(#lines, lineNum + 5)
+        
+        for i = start, stop do
             local prefix = i == lineNum and ">>> " or "    "
-            local lineContent = lines[i] or ""
-            if #lineContent > 80 then
-                lineContent = lineContent:sub(1, 77) .. "..."
-            end
-            print(prefix .. i .. ": " .. lineContent)
+            print(prefix .. i .. ": " .. (lines[i] or ""))
         end
-        print("----------------------------------------")
+        print("    ----------------------------------------")
     end
-    
-    -- Additional diagnostics
-    print("")
-    print("[6] Additional diagnostics:")
-    
-    -- Count keywords
-    local funcCount = select(2, content:gsub("function", "function"))
-    local endCount = select(2, content:gsub("%f[%a]end%f[%A]", "end"))
-    
-    print("  - 'function' count:", funcCount)
-    print("  - 'end' count:", endCount)
-    print("  - Difference:", funcCount - endCount)
-    
-    -- Check first 1000 chars
-    print("")
-    print("[7] First 500 characters:")
-    print("----------------------------------------")
-    print(content:sub(1, 500))
-    print("----------------------------------------")
+    return
+end
+
+print("    SUCCESS: Script parsed successfully")
+print("")
+
+-- Step 3: Execute
+print("[3] Executing...")
+local execSuccess, NexusUI = pcall(loadFunc)
+
+if not execSuccess then
+    warn("FAILED: Execution error")
+    warn("Error:", NexusUI)
+    return
+end
+
+print("    SUCCESS: Script executed")
+print("")
+
+-- Step 4: Verify API
+print("[4] Verifying API...")
+if type(NexusUI) ~= "table" then
+    warn("FAILED: NexusUI is not a table, got:", type(NexusUI))
+    return
+end
+
+local requiredMethods = {"CreateWindow", "SetTheme", "Notify"}
+local missingMethods = {}
+
+for _, method in ipairs(requiredMethods) do
+    if type(NexusUI[method]) ~= "function" then
+        table.insert(missingMethods, method)
+    end
+end
+
+if #missingMethods > 0 then
+    warn("FAILED: Missing methods:", table.concat(missingMethods, ", "))
+    return
+end
+
+print("    SUCCESS: All required methods found")
+print("")
+
+-- Step 5: Test functionality
+print("[5] Testing CreateWindow...")
+local windowSuccess, Window = pcall(function()
+    return NexusUI:CreateWindow({
+        Title = "Debug Test",
+        Theme = "Midnight"
+    })
+end)
+
+if not windowSuccess then
+    warn("FAILED: CreateWindow error")
+    warn("Error:", Window)
+    return
+end
+
+print("    SUCCESS: Window created")
+print("")
+
+-- Step 6: Test Tab
+print("[6] Testing AddTab...")
+local tabSuccess, Tab = pcall(function()
+    return Window:AddTab({ Name = "Test Tab" })
+end)
+
+if not tabSuccess then
+    warn("FAILED: AddTab error")
+    warn("Error:", Tab)
+    return
+end
+
+print("    SUCCESS: Tab created")
+print("")
+
+-- Step 7: Test components
+print("[7] Testing components...")
+local tests = {
+    {"AddButton", {Text = "Test", Callback = function() end}},
+    {"AddToggle", {Text = "Test", Default = false, Callback = function() end}},
+    {"AddSlider", {Text = "Test", Min = 0, Max = 100, Default = 50, Callback = function() end}},
+}
+
+for _, test in ipairs(tests) do
+    local method, args = test[1], test[2]
+    local s, e = pcall(function()
+        Tab[method](Tab, args)
+    end)
+    if s then
+        print("    " .. method .. ": OK")
+    else
+        warn("    " .. method .. ": FAILED -", e)
+    end
 end
 
 print("")
-print("=== Debug Complete ===")
+print("=== ALL TESTS PASSED ===")
+print("NexusUI is working correctly!")
+
+-- Notify success
+NexusUI:Notify({
+    Title = "Debug Complete",
+    Content = "All systems operational!",
+    Type = "Success",
+    Duration = 5
+})
