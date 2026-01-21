@@ -1,7 +1,7 @@
 --[[
     NexusUI Premium Library
     Version: 1.0.0
-    Compiled: 2026-01-20 20:59:24
+    Compiled: 2026-01-20 21:57:12
 --]]
 
 --// NexusUI Module Runtime
@@ -59795,16 +59795,62 @@ end
 
 --// Theme Management
 function NexusUI:SetTheme(themeName)
+    if not BuiltInThemes[themeName] then
+        Log("WARN", "Theme not found: %s, using Midnight", themeName)
+        themeName = "Midnight"
+    end
+    
     LibraryState.GlobalTheme = themeName
+    local theme = GetCurrentTheme()
     
     -- Apply theme to all windows
     for _, window in ipairs(LibraryState.Windows) do
-        if window and window.SetTheme then
-            window:SetTheme(themeName)
+        if window and window.Frame then
+            -- Update window background
+            window.Frame.BackgroundColor3 = theme.Background
+            
+            -- Update title bar
+            local titleBar = window.Frame:FindFirstChild("TitleBar")
+            if titleBar then
+                titleBar.BackgroundColor3 = theme.Surface
+                local tbFix = titleBar:FindFirstChild("Frame")
+                if tbFix then tbFix.BackgroundColor3 = theme.Surface end
+                local title = titleBar:FindFirstChild("Title") or titleBar:FindFirstChildOfClass("TextLabel")
+                if title then title.TextColor3 = theme.Text end
+            end
+            
+            -- Update content area
+            local content = window.Frame:FindFirstChild("Content")
+            if content then
+                content.BackgroundColor3 = theme.Surface
+            end
+            
+            -- Update tabs
+            if window.Tabs then
+                for _, tab in ipairs(window.Tabs) do
+                    if tab.Button then
+                        if tab == window.ActiveTab then
+                            tab.Button.BackgroundColor3 = theme.Primary
+                            tab.Button.TextColor3 = Color3.new(1, 1, 1)
+                        else
+                            tab.Button.BackgroundColor3 = theme.Secondary
+                            tab.Button.TextColor3 = theme.TextDim
+                        end
+                    end
+                end
+            end
         end
     end
     
     Log("INFO", "Theme changed to: %s", themeName)
+    
+    -- Show notification
+    self:Notify({
+        Title = "Theme Changed",
+        Content = "Applied theme: " .. themeName,
+        Type = "Success",
+        Duration = 2
+    })
 end
 
 function NexusUI:GetTheme()
@@ -59986,22 +60032,99 @@ end
 --// Notification System
 function NexusUI:Notify(config)
     config = config or {}
+    local theme = GetCurrentTheme()
+    local gui = LibraryState.ScreenGui
     
-    local notification = {
-        Title = config.Title or "Notification",
-        Content = config.Content or config.Message or "",
-        Type = config.Type or "Info", -- Info, Success, Warning, Error
-        Duration = config.Duration or 5,
-        Icon = config.Icon or nil,
-        Callback = config.Callback or nil,
-        Actions = config.Actions or nil
+    if not gui then return end
+    
+    local colors = {
+        Info = theme.Primary,
+        Success = theme.Success or Color3.fromRGB(34, 197, 94),
+        Warning = theme.Warning or Color3.fromRGB(234, 179, 8),
+        Error = theme.Error or Color3.fromRGB(239, 68, 68),
     }
     
-    if Components and Components.Notifications and Components.Notifications.Toast then
-        return Components.Notifications.Toast:Show(notification)
+    -- Create notification container if it doesn't exist
+    local container = gui:FindFirstChild("NotificationContainer")
+    if not container then
+        container = Instance.new("Frame")
+        container.Name = "NotificationContainer"
+        container.Size = UDim2.new(0, 300, 1, 0)
+        container.Position = UDim2.new(1, -310, 0, 0)
+        container.BackgroundTransparency = 1
+        container.Parent = gui
+        
+        local layout = Instance.new("UIListLayout")
+        layout.Padding = UDim.new(0, 10)
+        layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+        layout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.Parent = container
+        
+        local padding = Instance.new("UIPadding")
+        padding.PaddingBottom = UDim.new(0, 20)
+        padding.PaddingRight = UDim.new(0, 10)
+        padding.Parent = container
     end
     
-    Log("INFO", "Notification: [%s] %s - %s", notification.Type, notification.Title, notification.Content)
+    local notif = Instance.new("Frame")
+    notif.Name = "Notification"
+    notif.Size = UDim2.new(1, 0, 0, 70)
+    notif.BackgroundColor3 = theme.Surface
+    notif.BorderSizePixel = 0
+    notif.Parent = container
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = notif
+    
+    local accent = Instance.new("Frame")
+    accent.Size = UDim2.new(0, 4, 1, -8)
+    accent.Position = UDim2.new(0, 4, 0, 4)
+    accent.BackgroundColor3 = colors[config.Type] or theme.Primary
+    accent.BorderSizePixel = 0
+    accent.Parent = notif
+    Instance.new("UICorner", accent).CornerRadius = UDim.new(0, 2)
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -24, 0, 22)
+    title.Position = UDim2.new(0, 16, 0, 8)
+    title.BackgroundTransparency = 1
+    title.Text = config.Title or "Notification"
+    title.TextColor3 = theme.Text
+    title.TextSize = 14
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = notif
+    
+    local content = Instance.new("TextLabel")
+    content.Size = UDim2.new(1, -24, 0, 30)
+    content.Position = UDim2.new(0, 16, 0, 32)
+    content.BackgroundTransparency = 1
+    content.Text = config.Content or config.Message or ""
+    content.TextColor3 = theme.TextDim
+    content.TextSize = 12
+    content.Font = Enum.Font.Gotham
+    content.TextXAlignment = Enum.TextXAlignment.Left
+    content.TextWrapped = true
+    content.Parent = notif
+    
+    -- Animate in
+    notif.Position = UDim2.new(1, 50, 0, 0)
+    TweenService:Create(notif, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0, 0, 0, 0)
+    }):Play()
+    
+    -- Auto dismiss
+    task.delay(config.Duration or 4, function()
+        TweenService:Create(notif, TweenInfo.new(0.3), {
+            Position = UDim2.new(1, 50, 0, 0)
+        }):Play()
+        task.wait(0.3)
+        notif:Destroy()
+    end)
+    
+    Log("INFO", "Notification: [%s] %s - %s", config.Type or "Info", config.Title or "Notification", config.Content or "")
 end
 
 function NexusUI:Alert(config)
