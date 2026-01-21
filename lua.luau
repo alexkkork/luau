@@ -1,13 +1,7 @@
 --[[
-╔═══════════════════════════════════════════════════════════════════════════════╗
-║   ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗██╗   ██╗██╗                     ║
-║   ████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝██║   ██║██║                     ║
-║   ██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗██║   ██║██║                     ║
-║   ██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║██║   ██║██║                     ║
-║   ██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║╚██████╔╝██║                     ║
-║   ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝ ╚═════╝ ╚═╝                     ║
-║   NexusUI Premium Library | v1.0.0 | 2026-01-20                           ║
-╚═══════════════════════════════════════════════════════════════════════════════╝
+    NexusUI Premium Library
+    Version: 1.0.0
+    Compiled: 2026-01-20 18:50:20
 --]]
 
 --// NexusUI Module Runtime
@@ -27147,7 +27141,7 @@ function Calendar:Create(parent)
     prevBtn.BackgroundTransparency = 1
     prevBtn.BorderSizePixel = 0
     prevBtn.Font = Enum.Font.GothamBold
-    prevBtn.Text = "‹"
+    prevBtn.Text = ""
     prevBtn.TextColor3 = Color3.fromRGB(250, 250, 250)
     prevBtn.TextSize = 20
     prevBtn.AutoButtonColor = false
@@ -27183,7 +27177,7 @@ function Calendar:Create(parent)
     nextBtn.BackgroundTransparency = 1
     nextBtn.BorderSizePixel = 0
     nextBtn.Font = Enum.Font.GothamBold
-    nextBtn.Text = "›"
+    nextBtn.Text = ""
     nextBtn.TextColor3 = Color3.fromRGB(250, 250, 250)
     nextBtn.TextSize = 20
     nextBtn.AutoButtonColor = false
@@ -31151,10 +31145,10 @@ local KeyNames = {
     [Enum.KeyCode.End] = "End",
     [Enum.KeyCode.PageUp] = "Page Up",
     [Enum.KeyCode.PageDown] = "Page Down",
-    [Enum.KeyCode.Up] = "↑",
-    [Enum.KeyCode.Down] = "↓",
-    [Enum.KeyCode.Left] = "←",
-    [Enum.KeyCode.Right] = "→",
+    [Enum.KeyCode.Up] = "",
+    [Enum.KeyCode.Down] = "",
+    [Enum.KeyCode.Left] = "",
+    [Enum.KeyCode.Right] = "",
     [Enum.KeyCode.Escape] = "Esc",
     [Enum.KeyCode.Tilde] = "~",
     [Enum.KeyCode.Minus] = "-",
@@ -32071,7 +32065,7 @@ function Modal:Create(parent)
         closeBtn.BackgroundTransparency = 1
         closeBtn.BorderSizePixel = 0
         closeBtn.Font = Enum.Font.GothamBold
-        closeBtn.Text = "×"
+        closeBtn.Text = ""
         closeBtn.TextColor3 = Color3.fromRGB(161, 161, 170)
         closeBtn.TextSize = 24
         closeBtn.AutoButtonColor = false
@@ -33156,7 +33150,7 @@ function Pagination:_buildPagination()
     -- First page button
     if self.ShowFirstLast then
         layoutOrder = layoutOrder + 1
-        self:_createNavButton("First", "⟪", layoutOrder, function()
+        self:_createNavButton("First", "", layoutOrder, function()
             self:GoToPage(1)
         end, self.CurrentPage == 1)
     end
@@ -33164,7 +33158,7 @@ function Pagination:_buildPagination()
     -- Previous button
     if self.ShowPrevNext then
         layoutOrder = layoutOrder + 1
-        self:_createNavButton("Prev", "←", layoutOrder, function()
+        self:_createNavButton("Prev", "", layoutOrder, function()
             self:PrevPage()
         end, self.CurrentPage == 1)
     end
@@ -33193,7 +33187,7 @@ function Pagination:_buildPagination()
     -- Next button
     if self.ShowPrevNext then
         layoutOrder = layoutOrder + 1
-        self:_createNavButton("Next", "→", layoutOrder, function()
+        self:_createNavButton("Next", "", layoutOrder, function()
             self:NextPage()
         end, self.CurrentPage == self.TotalPages)
     end
@@ -33201,7 +33195,7 @@ function Pagination:_buildPagination()
     -- Last page button
     if self.ShowFirstLast then
         layoutOrder = layoutOrder + 1
-        self:_createNavButton("Last", "⟫", layoutOrder, function()
+        self:_createNavButton("Last", "", layoutOrder, function()
             self:GoToPage(self.TotalPages)
         end, self.CurrentPage == self.TotalPages)
     end
@@ -35618,7 +35612,7 @@ function Sidebar:Create(parent)
         collapseBtn.BackgroundTransparency = 1
         collapseBtn.BorderSizePixel = 0
         collapseBtn.Font = Enum.Font.GothamBold
-        collapseBtn.Text = self.IsCollapsed and "›" or "‹"
+        collapseBtn.Text = self.IsCollapsed and "" or ""
         collapseBtn.TextColor3 = Color3.fromRGB(161, 161, 170)
         collapseBtn.TextSize = 18
         collapseBtn.AutoButtonColor = false
@@ -35836,7 +35830,7 @@ function Sidebar:ToggleCollapse()
     end
     
     if self._collapseBtn then
-        self._collapseBtn.Text = self.IsCollapsed and "›" or "‹"
+        self._collapseBtn.Text = self.IsCollapsed and "" or ""
     end
     
     self:_buildItems()
@@ -37928,7 +37922,7 @@ function TextInput:Create(parent)
     
     -- Password mask
     if self.InputType == TextInput.Type.Password then
-        textBox.Text = string.rep("●", #self.Text)
+        textBox.Text = string.rep("", #self.Text)
     end
     
     -- Setup interactions
@@ -37999,7 +37993,7 @@ function TextInput:_setupInteractions()
             if newLen > oldLen then
                 -- Characters added
                 local addedChars = string.sub(text, oldLen + 1)
-                addedChars = string.gsub(addedChars, "●", "")
+                addedChars = string.gsub(addedChars, "", "")
                 realText = realText .. addedChars
             elseif newLen < oldLen then
                 -- Characters removed
@@ -38007,7 +38001,7 @@ function TextInput:_setupInteractions()
             end
             
             self.Text = realText
-            textBox.Text = string.rep("●", #realText)
+            textBox.Text = string.rep("", #realText)
         else
             -- Max length
             if self.MaxLength > 0 and #text > self.MaxLength then
@@ -38085,7 +38079,7 @@ function TextInput:SetText(text)
     
     if self._textBox then
         if self.InputType == TextInput.Type.Password then
-            self._textBox.Text = string.rep("●", #text)
+            self._textBox.Text = string.rep("", #text)
         else
             self._textBox.Text = text
         end
@@ -39855,7 +39849,7 @@ function Window:Create(parent)
         
         -- Maximize button
         if self.Maximizable then
-            local maximizeBtn = self:_createHeaderButton("Maximize", "□", buttons, 2)
+            local maximizeBtn = self:_createHeaderButton("Maximize", "", buttons, 2)
             self._maximizeBtn = maximizeBtn
             self:_connect(maximizeBtn.MouseButton1Click, function()
                 self:ToggleMaximize()
@@ -39864,7 +39858,7 @@ function Window:Create(parent)
         
         -- Close button
         if self.Closable then
-            local closeBtn = self:_createHeaderButton("Close", "×", buttons, 3, true)
+            local closeBtn = self:_createHeaderButton("Close", "", buttons, 3, true)
             self:_connect(closeBtn.MouseButton1Click, function()
                 self:Close()
             end)
@@ -39915,7 +39909,7 @@ function Window:_createHeaderButton(name, text, parent, order, isClose)
     btn.Font = Enum.Font.GothamBold
     btn.Text = text
     btn.TextColor3 = Color3.fromRGB(161, 161, 170)
-    btn.TextSize = text == "×" and 22 or 16
+    btn.TextSize = text == "" and 22 or 16
     btn.AutoButtonColor = false
     btn.LayoutOrder = order
     btn.Parent = parent
@@ -40111,7 +40105,7 @@ function Window:ToggleMaximize()
         }):Play()
         
         if self._maximizeBtn then
-            self._maximizeBtn.Text = "❐"
+            self._maximizeBtn.Text = ""
         end
         
         if self.OnMaximize then self.OnMaximize() end
@@ -40122,7 +40116,7 @@ function Window:ToggleMaximize()
         }):Play()
         
         if self._maximizeBtn then
-            self._maximizeBtn.Text = "□"
+            self._maximizeBtn.Text = ""
         end
         
         if self.OnRestore then self.OnRestore() end
@@ -41021,10 +41015,10 @@ local KeyNames = {
     [Enum.KeyCode.End] = "End",
     [Enum.KeyCode.PageUp] = "PgUp",
     [Enum.KeyCode.PageDown] = "PgDn",
-    [Enum.KeyCode.Up] = "↑",
-    [Enum.KeyCode.Down] = "↓",
-    [Enum.KeyCode.Left] = "←",
-    [Enum.KeyCode.Right] = "→",
+    [Enum.KeyCode.Up] = "",
+    [Enum.KeyCode.Down] = "",
+    [Enum.KeyCode.Left] = "",
+    [Enum.KeyCode.Right] = "",
     [Enum.KeyCode.Escape] = "Esc",
     [Enum.KeyCode.CapsLock] = "Caps",
     [Enum.KeyCode.Tilde] = "~",
@@ -45416,7 +45410,7 @@ function FormBuilder:Build(parent)
                 checkbox.AnchorPoint = Vector2.new(0, 0.5)
                 checkbox.BackgroundColor3 = field.Default and Color3.fromRGB(60, 130, 255) or Color3.fromRGB(40, 40, 45)
                 checkbox.BorderSizePixel = 0
-                checkbox.Text = field.Default and "✓" or ""
+                checkbox.Text = field.Default and "" or ""
                 checkbox.TextColor3 = Color3.fromRGB(255, 255, 255)
                 checkbox.TextSize = 14
                 checkbox.Font = Enum.Font.GothamBold
@@ -45432,7 +45426,7 @@ function FormBuilder:Build(parent)
                 
                 checkbox.MouseButton1Click:Connect(function()
                     formValues[field.Name] = not formValues[field.Name]
-                    checkbox.Text = formValues[field.Name] and "✓" or ""
+                    checkbox.Text = formValues[field.Name] and "" or ""
                     checkbox.BackgroundColor3 = formValues[field.Name] and Color3.fromRGB(60, 130, 255) or Color3.fromRGB(40, 40, 45)
                     if self._config.OnChange then
                         self._config.OnChange(field.Name, formValues[field.Name])
@@ -45885,7 +45879,7 @@ function ListBuilder:Build(parent)
             checkbox.AnchorPoint = Vector2.new(0, 0.5)
             checkbox.BackgroundColor3 = item.Checked and Color3.fromRGB(60, 130, 255) or Color3.fromRGB(50, 50, 55)
             checkbox.BorderSizePixel = 0
-            checkbox.Text = item.Checked and "✓" or ""
+            checkbox.Text = item.Checked and "" or ""
             checkbox.TextColor3 = Color3.fromRGB(255, 255, 255)
             checkbox.TextSize = 14
             checkbox.Font = Enum.Font.GothamBold
@@ -45898,7 +45892,7 @@ function ListBuilder:Build(parent)
             
             checkbox.MouseButton1Click:Connect(function()
                 item.Checked = not item.Checked
-                checkbox.Text = item.Checked and "✓" or ""
+                checkbox.Text = item.Checked and "" or ""
                 checkbox.BackgroundColor3 = item.Checked and Color3.fromRGB(60, 130, 255) or Color3.fromRGB(50, 50, 55)
                 checkItem(i, item.Checked)
             end)
@@ -45926,7 +45920,7 @@ function ListBuilder:Build(parent)
             bullet.Size = UDim2.new(0, 16, 1, 0)
             bullet.Position = UDim2.new(0, 12, 0, 0)
             bullet.BackgroundTransparency = 1
-            bullet.Text = "•"
+            bullet.Text = ""
             bullet.TextColor3 = Color3.fromRGB(100, 100, 110)
             bullet.TextSize = 16
             bullet.Font = Enum.Font.Gotham
@@ -46368,7 +46362,7 @@ function MenuBuilder:Build(parent, position)
                 check.Position = UDim2.new(0, 8, 0.5, 0)
                 check.AnchorPoint = Vector2.new(0, 0.5)
                 check.BackgroundTransparency = 1
-                check.Text = item.Checked and "✓" or ""
+                check.Text = item.Checked and "" or ""
                 check.TextColor3 = Color3.fromRGB(60, 130, 255)
                 check.TextSize = 14
                 check.Font = Enum.Font.GothamBold
@@ -46410,7 +46404,7 @@ function MenuBuilder:Build(parent, position)
                     item.Checked = not item.Checked
                     local check = itemFrame:FindFirstChild("Check")
                     if check then
-                        check.Text = item.Checked and "✓" or ""
+                        check.Text = item.Checked and "" or ""
                     end
                     if item.Callback then
                         item.Callback(item.Checked)
@@ -46688,7 +46682,7 @@ function SectionBuilder:Build(parent)
     arrow.Position = UDim2.new(0, 8, 0.5, 0)
     arrow.AnchorPoint = Vector2.new(0, 0.5)
     arrow.BackgroundTransparency = 1
-    arrow.Text = isCollapsed and "▶" or "▼"
+    arrow.Text = isCollapsed and "" or ""
     arrow.TextColor3 = Color3.fromRGB(150, 150, 150)
     arrow.TextSize = 10
     arrow.Font = Enum.Font.GothamBold
@@ -46735,7 +46729,7 @@ function SectionBuilder:Build(parent)
         if not self._config.Collapsible then return end
         
         isCollapsed = not isCollapsed
-        arrow.Text = isCollapsed and "▶" or "▼"
+        arrow.Text = isCollapsed and "" or ""
         content.Visible = not isCollapsed
         
         if self._config.OnToggle then
@@ -47354,7 +47348,7 @@ function ToolbarBuilder:Build(parent)
             icon.Position = self._config.ShowLabels and UDim2.new(0, 8, 0.5, 0) or UDim2.new(0.5, 0, 0.5, 0)
             icon.AnchorPoint = self._config.ShowLabels and Vector2.new(0, 0.5) or Vector2.new(0.5, 0.5)
             icon.BackgroundTransparency = 1
-            icon.Text = item.Icon or "●"
+            icon.Text = item.Icon or ""
             icon.TextColor3 = Color3.fromRGB(255, 255, 255)
             icon.TextSize = self._config.IconSize
             icon.Font = Enum.Font.Gotham
@@ -55761,7 +55755,7 @@ function Killfeed:AddKill(killer, victim, weapon, isHeadshot)
         arrow.Size = UDim2.new(0, 20, 1, 0)
         arrow.BackgroundTransparency = 1
         arrow.Font = Enum.Font.GothamBold
-        arrow.Text = "→"
+        arrow.Text = ""
         arrow.TextColor3 = Color3.fromRGB(113, 113, 122)
         arrow.TextSize = 12
         arrow.LayoutOrder = 2
@@ -55774,7 +55768,7 @@ function Killfeed:AddKill(killer, victim, weapon, isHeadshot)
         headshotIcon.Size = UDim2.new(0, 16, 1, 0)
         headshotIcon.BackgroundTransparency = 1
         headshotIcon.Font = Enum.Font.GothamBold
-        headshotIcon.Text = "◉"
+        headshotIcon.Text = ""
         headshotIcon.TextColor3 = Color3.fromRGB(245, 158, 11)
         headshotIcon.TextSize = 10
         headshotIcon.LayoutOrder = 3
@@ -56749,7 +56743,7 @@ function Spectate:Create(parent)
         end)
         
         -- Stop button
-        local stopBtn = self:_createControlButton("×", controls, function()
+        local stopBtn = self:_createControlButton("", controls, function()
             self:StopSpectating()
         end)
         
