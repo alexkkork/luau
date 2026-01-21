@@ -664,8 +664,8 @@ _modules["NexusUI/Core/EventSystem"] = function()
 ]]
 
 --// Dependencies
-local SignalClass = NexusRequire("NexusUI/SignalClass")
-local Maid = NexusRequire("NexusUI/Maid")
+local SignalClass = NexusRequire("NexusUI/Core/SignalClass")
+local Maid = NexusRequire("NexusUI/Core/Maid")
 
 --// Event System Class
 local EventSystem = {}
@@ -1746,7 +1746,7 @@ _modules["NexusUI/Core/InstancePool"] = function()
 ]]
 
 --// Dependencies
-local Constants = NexusRequire("NexusUI/Constants")
+local Constants = NexusRequire("NexusUI/Core/Constants")
 
 --// Instance Pool Class
 local InstancePool = {}
@@ -3465,7 +3465,7 @@ local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 
 --// Dependencies
-local Constants = NexusRequire("NexusUI/Constants")
+local Constants = NexusRequire("NexusUI/Core/Constants")
 
 --// Local Player
 local LocalPlayer = Players.LocalPlayer
@@ -4885,7 +4885,7 @@ _modules["NexusUI/Core/StateManager"] = function()
 ]]
 
 --// Dependencies
-local SignalClass = NexusRequire("NexusUI/SignalClass")
+local SignalClass = NexusRequire("NexusUI/Core/SignalClass")
 
 --// State Manager Class
 local StateManager = {}
@@ -19766,7 +19766,7 @@ end
 function Builder:Register()
     local theme = self:Build()
     
-    local Manager = NexusRequire("NexusUI/Manager")
+    local Manager = NexusRequire("NexusUI/Themes/Manager")
     Manager.RegisterTheme(theme)
     
     return theme
@@ -22873,7 +22873,7 @@ Presets.Matrix = req("Matrix")
 
 -- Register all themes with manager
 function Presets.RegisterAll()
-    local Manager = NexusRequire and NexusRequire("NexusUI/Themes/Manager") or NexusRequire("NexusUI/Themes/Manager")
+    local Manager = NexusRequire and NexusRequire("NexusUI/Themes/Manager") or NexusRequire("NexusUI/Themes/Presets/Manager")
     
     for name, theme in pairs(Presets) do
         if type(theme) == "table" and theme.Name then
@@ -25172,7 +25172,7 @@ _modules["NexusUI/Components/Accordion"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Accordion Component Module
 local Accordion = setmetatable({}, { __index = Base })
@@ -25500,7 +25500,7 @@ local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Avatar Component Module
 local Avatar = setmetatable({}, { __index = Base })
@@ -25802,7 +25802,7 @@ _modules["NexusUI/Components/Badge"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Badge Component Module
 local Badge = setmetatable({}, { __index = Base })
@@ -26580,7 +26580,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Button Component Module
 local Button = setmetatable({}, { __index = Base })
@@ -27025,7 +27025,7 @@ _modules["NexusUI/Components/Calendar"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Calendar Component Module
 local Calendar = setmetatable({}, { __index = Base })
@@ -27444,7 +27444,7 @@ _modules["NexusUI/Components/Card"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Card Component Module
 local Card = setmetatable({}, { __index = Base })
@@ -27735,7 +27735,7 @@ _modules["NexusUI/Components/Checkbox"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Checkbox Component Module
 local Checkbox = setmetatable({}, { __index = Base })
@@ -28016,7 +28016,7 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// ColorPicker Component Module
 local ColorPicker = setmetatable({}, { __index = Base })
@@ -28459,7 +28459,7 @@ _modules["NexusUI/Components/Container"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Container Component Module
 local Container = setmetatable({}, { __index = Base })
@@ -28851,7 +28851,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// ContextMenu Component Module
 local ContextMenu = setmetatable({}, { __index = Base })
@@ -29202,7 +29202,7 @@ _modules["NexusUI/Components/Dialog"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Dialog Component Module
 local Dialog = setmetatable({}, { __index = Base })
@@ -29583,7 +29583,7 @@ _modules["NexusUI/Components/Divider"] = function()
 ]]
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Divider Component Module
 local Divider = setmetatable({}, { __index = Base })
@@ -29750,7 +29750,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Drawer Component Module
 local Drawer = setmetatable({}, { __index = Base })
@@ -30012,7 +30012,7 @@ _modules["NexusUI/Components/Dropdown"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Dropdown Component Module
 local Dropdown = setmetatable({}, { __index = Base })
@@ -30569,7 +30569,7 @@ _modules["NexusUI/Components/Icon"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Icon Component Module
 local Icon = setmetatable({}, { __index = Base })
@@ -30836,7 +30836,7 @@ local TweenService = game:GetService("TweenService")
 local ContentProvider = game:GetService("ContentProvider")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Image Component Module
 local Image = setmetatable({}, { __index = Base })
@@ -31125,7 +31125,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Keybind Component Module
 local Keybind = setmetatable({}, { __index = Base })
@@ -31432,7 +31432,7 @@ _modules["NexusUI/Components/Label"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Label Component Module
 local Label = setmetatable({}, { __index = Base })
@@ -31612,7 +31612,7 @@ _modules["NexusUI/Components/List"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// List Component Module
 local List = setmetatable({}, { __index = Base })
@@ -31928,7 +31928,7 @@ _modules["NexusUI/Components/Modal"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Modal Component Module
 local Modal = setmetatable({}, { __index = Base })
@@ -32249,7 +32249,7 @@ _modules["NexusUI/Components/MultiSelect"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// MultiSelect Component Module
 local MultiSelect = setmetatable({}, { __index = Base })
@@ -32767,7 +32767,7 @@ _modules["NexusUI/Components/NumberInput"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// NumberInput Component Module
 local NumberInput = setmetatable({}, { __index = Base })
@@ -33088,7 +33088,7 @@ _modules["NexusUI/Components/Pagination"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Pagination Component Module
 local Pagination = setmetatable({}, { __index = Base })
@@ -33376,7 +33376,7 @@ _modules["NexusUI/Components/Panel"] = function()
 ]]
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Panel Component Module
 local Panel = setmetatable({}, { __index = Base })
@@ -33519,7 +33519,7 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// ProgressBar Component Module
 local ProgressBar = setmetatable({}, { __index = Base })
@@ -33805,7 +33805,7 @@ _modules["NexusUI/Components/RadioButton"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// RadioButton Component Module
 local RadioButton = setmetatable({}, { __index = Base })
@@ -34097,7 +34097,7 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// RangeSlider Component Module
 local RangeSlider = setmetatable({}, { __index = Base })
@@ -34465,7 +34465,7 @@ _modules["NexusUI/Components/ScrollView"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// ScrollView Component Module
 local ScrollView = setmetatable({}, { __index = Base })
@@ -34648,7 +34648,7 @@ _modules["NexusUI/Components/SearchInput"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// SearchInput Component Module
 local SearchInput = setmetatable({}, { __index = Base })
@@ -34953,7 +34953,7 @@ _modules["NexusUI/Components/Section"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Section Component Module
 local Section = setmetatable({}, { __index = Base })
@@ -35198,7 +35198,7 @@ _modules["NexusUI/Components/SegmentedControl"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// SegmentedControl Component Module
 local SegmentedControl = setmetatable({}, { __index = Base })
@@ -35468,7 +35468,7 @@ _modules["NexusUI/Components/Sidebar"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Sidebar Component Module
 local Sidebar = setmetatable({}, { __index = Base })
@@ -35872,7 +35872,7 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Slider Component Module
 local Slider = setmetatable({}, { __index = Base })
@@ -36249,7 +36249,7 @@ _modules["NexusUI/Components/Spacer"] = function()
 ]]
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Spacer Component Module
 local Spacer = setmetatable({}, { __index = Base })
@@ -36333,7 +36333,7 @@ _modules["NexusUI/Components/Switch"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Switch Component Module
 local Switch = setmetatable({}, { __index = Base })
@@ -36626,7 +36626,7 @@ _modules["NexusUI/Components/Table"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Table Component Module
 local Table = setmetatable({}, { __index = Base })
@@ -37075,7 +37075,7 @@ _modules["NexusUI/Components/Tabs"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Tabs Component Module
 local Tabs = setmetatable({}, { __index = Base })
@@ -37448,7 +37448,7 @@ _modules["NexusUI/Components/TextArea"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// TextArea Component Module
 local TextArea = setmetatable({}, { __index = Base })
@@ -37773,7 +37773,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// TextInput Component Module
 local TextInput = setmetatable({}, { __index = Base })
@@ -38166,7 +38166,7 @@ _modules["NexusUI/Components/Toggle"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Toggle Component Module
 local Toggle = setmetatable({}, { __index = Base })
@@ -38460,7 +38460,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Tooltip Component Module
 local Tooltip = setmetatable({}, { __index = Base })
@@ -38808,7 +38808,7 @@ _modules["NexusUI/Components/TopBar"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// TopBar Component Module
 local TopBar = setmetatable({}, { __index = Base })
@@ -39090,7 +39090,7 @@ _modules["NexusUI/Components/TreeView"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// TreeView Component Module
 local TreeView = setmetatable({}, { __index = Base })
@@ -39426,7 +39426,7 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// VirtualList Component Module
 local VirtualList = setmetatable({}, { __index = Base })
@@ -39665,7 +39665,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 --// Dependencies
-local Base = NexusRequire("NexusUI/Base")
+local Base = NexusRequire("NexusUI/Components/Base")
 
 --// Window Component Module
 local Window = setmetatable({}, { __index = Base })
@@ -43839,17 +43839,17 @@ function Loader:PreloadLibrary(progressCallback, completeCallback)
     local assets = {}
     
     -- Collect all asset IDs from library
-    local Icons = NexusRequire("NexusUI/Icons")
+    local Icons = NexusRequire("NexusUI/Assets/Icons")
     for _, assetId in pairs(Icons.List) do
         table.insert(assets, assetId)
     end
     
-    local Images = NexusRequire("NexusUI/Images")
+    local Images = NexusRequire("NexusUI/Assets/Images")
     for _, assetId in pairs(Images.List) do
         table.insert(assets, assetId)
     end
     
-    local Sounds = NexusRequire("NexusUI/Sounds")
+    local Sounds = NexusRequire("NexusUI/Assets/Sounds")
     for _, assetId in pairs(Sounds.List) do
         table.insert(assets, assetId)
     end
@@ -48021,7 +48021,7 @@ end
 function WindowBuilder:Build(parent)
     -- Try to get the Components module
     local success, Components = pcall(function()
-        return NexusRequire("Components")
+        return NexusRequire("NexusUI/Components")
     end)
     
     if success and Components and Components.Window then
@@ -48725,8 +48725,8 @@ _modules["NexusUI/Notifications/Manager"] = function()
 local TweenService = game:GetService("TweenService")
 
 --// Dependencies
-local Toast = NexusRequire("NexusUI/Toast")
-local Notification = NexusRequire("NexusUI/Notification")
+local Toast = NexusRequire("NexusUI/Notifications/Toast")
+local Notification = NexusRequire("NexusUI/Notifications/Notification")
 
 --// Manager Module
 local Manager = {}
