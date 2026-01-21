@@ -1,7 +1,7 @@
 --[[
     NexusUI Premium Library
     Version: 1.0.0
-    Compiled: 2026-01-20 20:36:36
+    Compiled: 2026-01-20 20:55:11
 --]]
 
 --// NexusUI Module Runtime
@@ -340,7 +340,7 @@ Constants.Animation = {
         Smooth = { Style = Enum.EasingStyle.Sine, Direction = Enum.EasingDirection.InOut },
         Bounce = { Style = Enum.EasingStyle.Bounce, Direction = Enum.EasingDirection.Out },
         Elastic = { Style = Enum.EasingStyle.Elastic, Direction = Enum.EasingDirection.Out },
-        Sharp = { Style = Enum.EasingStyle.Expo, Direction = Enum.EasingDirection.Out },
+        Sharp = { Style = Enum.EasingStyle.Exponential, Direction = Enum.EasingDirection.Out },
     },
 }
 
@@ -31156,7 +31156,7 @@ local KeyNames = {
     [Enum.KeyCode.Equals] = "=",
     [Enum.KeyCode.LeftBracket] = "[",
     [Enum.KeyCode.RightBracket] = "]",
-    [Enum.KeyCode.Backslash] = "\\",
+    [Enum.KeyCode.BackSlash] = "\\",
     [Enum.KeyCode.Semicolon] = ";",
     [Enum.KeyCode.Quote] = "'",
     [Enum.KeyCode.Comma] = ",",
