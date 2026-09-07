@@ -1,0 +1,2027 @@
+-- Bake the Baby Admin Panel | PlayerTools v4.2
+-- Paste the entire file into your client script runner. Right Shift toggles the UI.
+-- Rayfield requires a client runtime with loadstring + game:HttpGet (not a normal LocalScript).
+-- Game adapter derived from place 14567590300, supplied S13 BATHE DA BABY save.
+-- Pickup extends the actual Catch prompt, not character physics. Server validation still applies.
+
+local function createPanel(Rayfield, storage)
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local Input = game:GetService("UserInputService")
+    local PromptService = game:GetService("ProximityPromptService")
+    local CollectionService = game:GetService("CollectionService")
+    local Workspace = game:GetService("Workspace")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local Lighting = game:GetService("Lighting")
+    local me = Players.LocalPlayer
+    assert(me, "Bake the Baby Admin Panel must run on the client.")
+    local playerGui = me:WaitForChild("PlayerGui")
+    local state = {
+        AutoGrab = false, ExpandPickup = false, PickupRadius = 18, ShowPickupRange = false,
+        AutoOven = false, TravelToOven = true, ReturnAfterOven = true, OvenESP = false,
+        AutoRescue = false, RescueRadius = 12, BakerAlert = false, AlertRadius = 35,
+        InstantPrompts = true, AutoPrompts = false, OnlyEPrompts = false, RepeatPrompts = false,
+        ESP = true, ESPDistance = 3000,
+        ESPColor = Color3.fromRGB(255, 85, 100),
+        Speed = false, WalkSpeed = 32, Jump = false, JumpPower = 70,
+        InfiniteJump = false, Noclip = false, Fly = false, FlySpeed = 60,
+        Fullbright = false, CustomFOV = false, FOV = 90, PauseUnfocused = true,
+        UseSavedSpot = false,
+        AutoRun = false, QueueMode = "Any populated", JoinEmpty = false, HideDistance = 500,
+    }
+    local alive, focused = true, true
+    local connections, characterConnections, characterParts = {}, {}, {}
+    local prompts, overlays, ovenOverlays, ovenGuides = {}, {}, {}, {}
+    local controls: { [string]: any } = {}
+    local leases = { movement = {}, collision = {}, prompt = {}, lighting = {}, camera = {} }
+    local interaction, rangeBall, flight, waypoint
+    local selectedPlayer, selectedOven, playerDropdown, ovenDropdown
+    local statusLabel, carryLabel, matchLabel, babyStatus, bakerStatus, detectionLabel
+    local roleMode, playerSearch, playerScope = "Automatic", "", "All server players"
+    local roleDropdown, speedInput
+    local babyActionLabel, bakerActionLabel, lastReturn, rescueBatch
+    local controlCopies, syncingControls = {}, false
+    local lastStatus, statusText, statusUntil = "", "Ready", 0
+    local lastJump, lastAlert, alertTarget = -math.huge, -math.huge, nil
+    local nextAction, moveReadyAt = 0, 0
+    local rosterSignature, promptSignature = "", ""
+    local stats = { grabs = 0, deposits = 0, rescues = 0, prompts = 0, failedInputs = 0 }
+    local clock = os.clock
+    local destroyUI = Rayfield.Destroy
+    local controller = { PlayerOptions = {}, OvenOptions = {} }
+    local auto: { [string]: any } = { status = "Stopped", queues = {}, queueCooldowns = {}, queueLabels = {}, ovens = {}, ovenCooldowns = {}, nextScan = 0 }
+
+    local function new(className, properties, parent)
+        local object = Instance.new(className)
+        for key, value in pairs(properties or {}) do object[key] = value end
+        object.Parent = parent
+        return object
+    end
+    local marker = new("ScreenGui", { Name = "BakeTheBabyAdminRuntime", ResetOnSpawn = false }, playerGui)
+    local shutdownSignal = new("BindableFunction", { Name = "Shutdown" }, marker)
+    local effects = new("Folder", { Name = "BakeTheBaby_LocalEffects" }, Workspace)
+
+    local function connect(signal, callback, bag)
+        local connection = signal:Connect(callback)
+        table.insert(bag or connections, connection)
+        return connection
+    end
+    local function disconnectAll(bag)
+        for _, connection in ipairs(bag) do connection:Disconnect() end
+        table.clear(bag)
+    end
+    local function writeProperty(bucket, object, property, value)
+        local current = object[property]
+        local record = bucket[object]
+        if not record then record = {}; bucket[object] = record end
+        local item = record[property]
+        if not item then
+            item = { original = current, applied = current }
+            record[property] = item
+        elseif current ~= item.applied then
+            item.original = current -- Keep newer game-side values for restoration.
+        end
+        item.applied = value
+        if current ~= value then object[property] = value end
+    end
+    local function restoreProperty(bucket, object, property)
+        local record = bucket[object]
+        local item = record and record[property]
+        if not item then return end
+        record[property] = nil
+        pcall(function()
+            if object[property] == item.applied then object[property] = item.original end
+        end)
+        if next(record) == nil then bucket[object] = nil end
+    end
+    local function restoreObject(bucket, object)
+        local record = bucket[object]
+        if not record then return end
+        local keys = {}
+        for key in pairs(record) do table.insert(keys, key) end
+        for _, key in ipairs(keys) do restoreProperty(bucket, object, key) end
+    end
+    local function restoreAll(bucket)
+        local objects = {}
+        for object in pairs(bucket) do table.insert(objects, object) end
+        for _, object in ipairs(objects) do restoreObject(bucket, object) end
+    end
+    local function setStatus(message, duration)
+        statusText, statusUntil = message, clock() + (duration or 0)
+    end
+    local function notify(message)
+        setStatus(message, 4)
+        pcall(function()
+            Rayfield:Notify({ Title = "Bake the Baby Admin Panel", Content = message, Duration = 4 })
+        end)
+    end
+    local function path(root, ...)
+        local node = root
+        for _, name in ipairs({ ... }) do
+            node = node and node:FindFirstChild(name)
+        end
+        return node
+    end
+    local function body(player)
+        local character = player and player.Character
+        if not character or not character:IsDescendantOf(Workspace) then return nil end
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        local root = character:FindFirstChild("HumanoidRootPart")
+        if humanoid and humanoid.Health > 0 and root and root:IsA("BasePart") then
+            return character, humanoid, root
+        end
+        return nil
+    end
+    local function rosterRecord(player, roster)
+        if not player or not roster then return nil end
+        local named = roster:FindFirstChild(player.Name)
+        if named then return named end
+        for _, record in ipairs(roster:GetChildren()) do
+            if tostring(record:GetAttribute("UserId")) == tostring(player.UserId) then return record end
+        end
+        return nil
+    end
+    local function matchContext()
+        local id = me:GetAttribute("CurrentGameId")
+        if id == false then return nil end
+        if id == nil then
+            -- The roster can arrive before CurrentGameId. Accept only one active membership.
+            local active = path(ReplicatedStorage, "Game_Status", "Active_Games")
+            for _, config in ipairs(active and active:GetChildren() or {}) do
+                local record = rosterRecord(me, config:FindFirstChild("Players"))
+                if config:GetAttribute("Game_Over") ~= true and record
+                    and record:GetAttribute("In_Game") == true and record:GetAttribute("Alive") ~= false then
+                    if id ~= nil then return nil end
+                    id = config.Name
+                end
+            end
+        end
+        if id == nil then return nil end
+        local key = tostring(id)
+        local config = path(ReplicatedStorage, "Game_Status", "Active_Games", key)
+        local world = path(Workspace, "Games_Folder", "Active_Games", key)
+        return { id = key, config = config, roster = config and config:FindFirstChild("Players"), world = world }
+    end
+    local function participant(player, context)
+        if not context then return nil end
+        if context.config and context.config:GetAttribute("Game_Over") == true then return nil end
+        local record = rosterRecord(player, context.roster)
+        if record and (record:GetAttribute("In_Game") == false or record:GetAttribute("Alive") == false) then return nil end
+        local id = player:GetAttribute("CurrentGameId")
+        if id ~= nil and tostring(id) ~= context.id then return nil end
+        if record then return record end
+        -- Replication may expose CurrentGameId before the roster entry.
+        if id ~= nil and player:GetAttribute("In_Game") ~= false and player:GetAttribute("Alive") ~= false then return player end
+        return nil
+    end
+    local function role(player)
+        local character = player and player.Character
+        if not character or not character:IsDescendantOf(Workspace) then return nil end
+        if player == me and roleMode ~= "Automatic" then return roleMode end
+        -- Matches the game's ProximityPrompt_Visbility and Tutorial_Handler:
+        -- truthy Character.IsBaby is a baby; false OR absent is an adult.
+        -- Player.IsBaby may belong to a previous role and must not override the character.
+        return character:GetAttribute("IsBaby") and "Baby" or "Baker"
+    end
+    local function roleText(player)
+        local current = role(player)
+        return current == "Baker" and "Baker / Adult" or current or "Waiting for character"
+    end
+    local function relation(player, context)
+        if player == me then return "self" end
+        local mine, theirs = participant(me, context), participant(player, context)
+        if not mine or not theirs then return nil end
+        local myTeam, theirTeam = mine:GetAttribute("Team"), theirs:GetAttribute("Team")
+        if myTeam == nil then myTeam = me:GetAttribute("Team") end
+        if theirTeam == nil then theirTeam = player:GetAttribute("Team") end
+        if myTeam ~= nil and theirTeam ~= nil then
+            return myTeam == theirTeam and "ally" or "enemy"
+        end
+        if me.Team and player.Team and not me.Neutral and not player.Neutral then
+            return me.Team == player.Team and "ally" or "enemy"
+        end
+        local mineRole, theirRole = role(me), role(player)
+        if mineRole and theirRole then return mineRole == theirRole and "ally" or "enemy" end
+        return nil
+    end
+    local function carrying(character)
+        local value = character and character:GetAttribute("Carries")
+        return value ~= nil and value ~= false and value ~= 0 and value ~= "" and value ~= "0"
+    end
+    local function restrained(character)
+        return character:GetAttribute("IsCarried") or character:GetAttribute("IsTrapped")
+    end
+    local function movable(character, humanoid, root)
+        return character and not restrained(character) and not root.Anchored and not humanoid.Sit
+    end
+    local function characterOwner(object)
+        local cursor = object.Parent
+        while cursor and cursor ~= Workspace do
+            if cursor:IsA("Model") then
+                local player = Players:GetPlayerFromCharacter(cursor)
+                if player then return player end
+            end
+            cursor = cursor.Parent
+        end
+        return nil
+    end
+    local function promptPosition(prompt)
+        local host = prompt.Parent
+        if not host then return nil end
+        if host:IsA("Attachment") then return host.WorldPosition, host.Parent end
+        if host:IsA("BasePart") then return host.Position, host end
+        if host:IsA("Model") then return host:GetPivot().Position, host end
+        return nil
+    end
+    local function words(value)
+        return string.lower(tostring(value or "")):gsub("[^%w]", "")
+    end
+    local function includes(value, candidates)
+        for _, candidate in ipairs(candidates) do
+            if string.find(value, candidate, 1, true) then return true end
+        end
+        return false
+    end
+    local function trapContext(prompt, context)
+        if not context or not context.world or not prompt:IsDescendantOf(context.world) then return false end
+        local cursor = prompt
+        while cursor and cursor ~= context.world do
+            local name = words(cursor.Name)
+            local metadata = words(cursor:GetAttribute("Name")) .. words(cursor:GetAttribute("Type"))
+                .. words(cursor:GetAttribute("Title"))
+            if name == "traps" or includes(name .. metadata, { "oven", "bathtub", "bathe" }) then return true end
+            for guide in pairs(ovenGuides) do
+                -- The game's Highlight handler associates a guide with Parent.Parent.
+                if guide.Parent and cursor == guide.Parent.Parent then return true end
+            end
+            cursor = cursor.Parent
+        end
+        return includes(words(prompt:GetAttribute("Type")), { "oven", "trap", "bath" })
+    end
+    local function classify(prompt, context)
+        if not prompt.Parent or not prompt:IsDescendantOf(Workspace) then return nil end
+        local target = characterOwner(prompt)
+        local action, name = words(prompt.ActionText), words(prompt.Name)
+        local title, objectText = words(prompt:GetAttribute("Title")), words(prompt.ObjectText)
+        if target then
+            local character = body(target)
+            if not character or role(target) ~= "Baby" then return nil end
+            local side = relation(target, context)
+            if side == "enemy" and (title == "catchbaby" or (name == "mom" and action == "catch")
+                or includes(action, { "catchbaby", "pickupbaby", "grabbaby" })) then
+                return "grab", target
+            end
+            if side == "ally" and character:GetAttribute("IsTrapped")
+                and (name == "baby" or name == "all")
+                and includes(action, { "rescue", "free", "save", "release" }) then
+                return "rescue", target
+            end
+            return nil -- Never automate display mannequins or unrelated player prompts.
+        end
+        if not context or not context.world or not prompt:IsDescendantOf(context.world) then return nil end
+        if selectedOven == prompt then return "oven" end
+        if includes(action .. title, { "buy", "purchase", "donate" }) then return nil end
+        local trap = trapContext(prompt, context) or includes(objectText .. title, { "oven", "bathtub", "bathe" })
+        local frees = includes(action .. title, { "rescue", "free", "savebaby", "release", "removebaby", "untrap" })
+        if trap and (name == "baby" or frees) then return "rescue" end
+        if name == "baby" or frees then return nil end
+        if includes(action, { "open", "close", "enter", "exit" }) then return nil end
+        local deposits = includes(action .. title, { "cook", "bake", "bathe", "placebaby", "putbaby", "insertbaby", "depositbaby" })
+        if deposits or (trap and (includes(action .. title, { "place", "put", "insert", "deposit", "trap" })
+            or (name == "mom" and not includes(action, { "open", "close", "enter", "exit" })))) then return "oven" end
+        return nil
+    end
+
+    local function releaseInput(returnHome)
+        local active = interaction
+        interaction = nil
+        if active then
+            if active.thread and coroutine.status(active.thread) ~= "dead" then
+                pcall(task.cancel, active.thread)
+            end
+            if active.prompt then pcall(function() active.prompt:InputHoldEnd() end) end
+            if returnHome and active.returnHome then
+                local ok, err = pcall(active.returnHome)
+                if not ok then warn("[Bake the Baby] Return failed: " .. tostring(err)) end
+            end
+        end
+    end
+    local function stopFlight()
+        if not flight then return end
+        local old = flight
+        flight = nil
+        old.velocity:Destroy()
+        old.orientation:Destroy()
+        old.attachment:Destroy()
+        restoreProperty(leases.movement, old.humanoid, "PlatformStand")
+        restoreProperty(leases.movement, old.humanoid, "AutoRotate")
+        if old.root.Parent then
+            old.root.AssemblyLinearVelocity = Vector3.zero
+            old.root.AssemblyAngularVelocity = Vector3.zero
+        end
+    end
+    local function destroyOverlay(overlay)
+        if not overlay then return end
+        if overlay.highlight then overlay.highlight:Destroy() end
+        overlay.billboard:Destroy()
+    end
+    local function clearOverlays(bucket)
+        for key, overlay in pairs(bucket) do destroyOverlay(overlay); bucket[key] = nil end
+    end
+    local function cleanup()
+        if not alive then return end
+        alive = false
+        releaseInput(true)
+        if auto.stopHiding then auto.stopHiding(true) end
+        if auto.leaveQueue then auto.leaveQueue(true) end
+        disconnectAll(connections)
+        disconnectAll(characterConnections)
+        stopFlight()
+        for _, bucket in pairs(leases) do restoreAll(bucket) end
+        clearOverlays(overlays)
+        clearOverlays(ovenOverlays)
+        effects:Destroy()
+        marker:Destroy()
+        if storage.BakeTheBabyAdmin == controller then storage.BakeTheBabyAdmin = nil end
+        pcall(destroyUI, Rayfield)
+    end
+    controller.Shutdown = cleanup
+    storage.BakeTheBabyAdmin = controller
+    shutdownSignal.OnInvoke = function() cleanup(); return true end
+    Rayfield.Destroy = cleanup
+    connect(marker.Destroying, cleanup)
+
+    local function trackCharacter(character)
+        releaseInput()
+        if auto.stopHiding then auto.stopHiding(false) end
+        auto.joining, auto.bounds = nil, nil
+        lastReturn, rescueBatch = nil, nil
+        state.UseSavedSpot = false
+        if controls.UseSavedSpot then controls.UseSavedSpot:Set(false) end
+        roleMode = "Automatic"
+        if roleDropdown then roleDropdown:Set({ "Automatic" }) end
+        waypoint = nil
+        nextAction, moveReadyAt = clock() + 0.5, 0
+        stopFlight()
+        restoreAll(leases.movement)
+        restoreAll(leases.collision)
+        disconnectAll(characterConnections)
+        table.clear(characterParts)
+        if not character then return end
+        connect(character:GetAttributeChangedSignal("IsBaby"), function()
+            releaseInput(true); rescueBatch = nil
+            if auto.stopHiding then auto.stopHiding(true) end
+            roleMode = "Automatic"
+            if roleDropdown then roleDropdown:Set({ "Automatic" }) end
+            restoreAll(leases.prompt)
+            clearOverlays(overlays)
+            nextAction = clock() + 0.25
+        end, characterConnections)
+        for _, object in ipairs(character:GetDescendants()) do
+            if object:IsA("BasePart") then characterParts[object] = true end
+        end
+        connect(character.DescendantAdded, function(object)
+            if object:IsA("BasePart") then characterParts[object] = true end
+        end, characterConnections)
+        connect(character.DescendantRemoving, function(object)
+            restoreObject(leases.collision, object)
+            characterParts[object] = nil
+        end, characterConnections)
+    end
+    connect(me.CharacterAdded, trackCharacter)
+    connect(me.CharacterRemoving, function() trackCharacter(nil) end)
+    trackCharacter(me.Character)
+    connect(me:GetAttributeChangedSignal("CurrentGameId"), function()
+        releaseInput()
+        if auto.stopHiding then auto.stopHiding(false) end
+        auto.joining, auto.bounds = nil, nil
+        lastReturn, rescueBatch = nil, nil
+        state.UseSavedSpot = false
+        if controls.UseSavedSpot then controls.UseSavedSpot:Set(false) end
+        waypoint, selectedOven = nil, nil
+        nextAction = clock() + 0.75
+        restoreAll(leases.prompt)
+        clearOverlays(overlays)
+        clearOverlays(ovenOverlays)
+        promptSignature, rosterSignature = "", ""
+    end)
+    connect(Input.WindowFocused, function() focused = true end)
+    connect(Input.WindowFocusReleased, function()
+        focused = false
+        if state.PauseUnfocused and not state.AutoRun then releaseInput(true) end
+    end)
+
+    local function applyMovement()
+        local character, humanoid, root = body(me)
+        if not character or restrained(character) then
+            stopFlight()
+            restoreAll(leases.movement)
+            restoreAll(leases.collision)
+            return
+        end
+        if state.Speed then writeProperty(leases.movement, humanoid, "WalkSpeed", state.WalkSpeed)
+        else restoreProperty(leases.movement, humanoid, "WalkSpeed") end
+        if state.Jump then
+            if humanoid.UseJumpPower then
+                restoreProperty(leases.movement, humanoid, "JumpHeight")
+                writeProperty(leases.movement, humanoid, "JumpPower", state.JumpPower)
+            else
+                restoreProperty(leases.movement, humanoid, "JumpPower")
+                writeProperty(leases.movement, humanoid, "JumpHeight", state.JumpPower ^ 2 / (2 * math.max(Workspace.Gravity, 1)))
+            end
+        else
+            restoreProperty(leases.movement, humanoid, "JumpPower")
+            restoreProperty(leases.movement, humanoid, "JumpHeight")
+        end
+        if not state.Noclip then restoreAll(leases.collision) end
+        if not state.Fly or auto.hide or not movable(character, humanoid, root) then stopFlight() end
+    end
+    local function updateFlight()
+        local character, humanoid, root = body(me)
+        if not state.Fly or auto.hide or not movable(character, humanoid, root) then stopFlight(); return end
+        if flight and flight.root ~= root then stopFlight() end
+        if not flight then
+            local attachment = new("Attachment", { Name = "BTB_Flight" }, root)
+            local velocity = new("LinearVelocity", {
+                Name = "BTB_FlightVelocity", Attachment0 = attachment,
+                RelativeTo = Enum.ActuatorRelativeTo.World, MaxForce = math.huge,
+                VectorVelocity = Vector3.zero,
+            }, root)
+            local orientation = new("AlignOrientation", {
+                Name = "BTB_FlightOrientation", Attachment0 = attachment,
+                Mode = Enum.OrientationAlignmentMode.OneAttachment,
+                MaxTorque = math.huge, Responsiveness = 25,
+            }, root)
+            flight = { attachment = attachment, velocity = velocity, orientation = orientation, root = root, humanoid = humanoid }
+        end
+        writeProperty(leases.movement, humanoid, "PlatformStand", true)
+        writeProperty(leases.movement, humanoid, "AutoRotate", false)
+        local camera = Workspace.CurrentCamera
+        local direction = Vector3.zero
+        if camera and (focused or not state.PauseUnfocused) and not Input:GetFocusedTextBox() then
+            local function down(key) return Input:IsKeyDown(key) and 1 or 0 end
+            local forward = down(Enum.KeyCode.W) - down(Enum.KeyCode.S)
+            local right = down(Enum.KeyCode.D) - down(Enum.KeyCode.A)
+            local up = down(Enum.KeyCode.Space) - math.max(down(Enum.KeyCode.LeftControl), down(Enum.KeyCode.RightControl))
+            direction = camera.CFrame.LookVector * forward + camera.CFrame.RightVector * right + Vector3.yAxis * up
+            if direction.Magnitude > 1 then direction = direction.Unit end
+        end
+        flight.velocity.VectorVelocity = direction * state.FlySpeed
+        if camera then
+            local look = camera.CFrame.LookVector * Vector3.new(1, 0, 1)
+            if look.Magnitude > 0.001 then flight.orientation.CFrame = CFrame.lookAt(Vector3.zero, look) end
+        end
+    end
+    connect(RunService.PreSimulation, function()
+        if not alive then return end
+        local character = body(me)
+        if state.Noclip and character and not restrained(character) then
+            for part in pairs(characterParts) do
+                if part.Parent then writeProperty(leases.collision, part, "CanCollide", false) end
+            end
+        end
+        updateFlight()
+    end)
+    connect(Input.JumpRequest, function()
+        if not alive or not state.InfiniteJump or state.Fly or Input:GetFocusedTextBox()
+            or (state.PauseUnfocused and not focused) or clock() - lastJump < 0.16 then return end
+        local character, humanoid, root = body(me)
+        if not movable(character, humanoid, root) or humanoid.PlatformStand then return end
+        lastJump = clock()
+        local power = humanoid.UseJumpPower and humanoid.JumpPower
+            or math.sqrt(2 * Workspace.Gravity * math.max(humanoid.JumpHeight, 0))
+        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, power, root.AssemblyLinearVelocity.Z)
+    end)
+
+    local function teleport(destination)
+        local character, humanoid, root = body(me)
+        if not movable(character, humanoid, root) then return false, "Character cannot move right now" end
+        local rootToPivot = root.CFrame:ToObjectSpace(character:GetPivot())
+        character:PivotTo(destination * rootToPivot)
+        root.AssemblyLinearVelocity, root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
+        return true
+    end
+
+    function auto.scanQueues()
+        auto.nextScan = clock() + 0.75
+        local helper = Workspace:FindFirstChild("DuelTeleportHelper")
+        local names, rows = {}, {}
+        for _, player in ipairs(Players:GetPlayers()) do names[tostring(player.UserId)] = "@" .. player.Name end
+        for _, queue in ipairs(helper and helper:GetChildren() or {}) do
+            local size = tonumber(queue:GetAttribute("TeamSize"))
+            if size and size >= 1 and size <= 5 and size == math.floor(size) then
+                local row = { object = queue, size = size, capacity = size * 2, count = 0, mine = false,
+                    members = {}, slots = 0, destination = queue:GetAttribute("TeleportPivot") }
+                local seen = {}
+                for _, teamName in ipairs({ "Team1", "Team2" }) do
+                    local team = queue:FindFirstChild(teamName)
+                    for _, slot in ipairs(team and team:GetChildren() or {}) do
+                        row.slots += 1
+                        local id = tonumber(slot:GetAttribute("UserId"))
+                        if id and id > 0 and not seen[id] then
+                            seen[id], row.count = true, row.count + 1
+                            row.mine = row.mine or id == me.UserId
+                            table.insert(row.members, names[tostring(id)] or ("User " .. tostring(id)))
+                        end
+                    end
+                end
+                table.sort(row.members)
+                table.insert(rows, row)
+            end
+        end
+        table.sort(rows, function(a, b)
+            local fillA, fillB = a.count / a.capacity, b.count / b.capacity
+            if fillA ~= fillB then return fillA > fillB end
+            return a.object.Name < b.object.Name
+        end)
+        auto.queues = rows
+        for size, label in pairs(auto.queueLabels) do
+            local lines = {}
+            for _, row in ipairs(rows) do
+                if row.size == size then
+                    table.insert(lines, string.format("%s: %d/%d%s | %s", row.object.Name, row.count, row.capacity,
+                        row.mine and " (you joined)" or row.count >= row.capacity and " (full)" or "",
+                        #row.members > 0 and table.concat(row.members, ", ") or "empty"))
+                end
+            end
+            label:Set(#lines > 0 and table.concat(lines, "\n") or (size .. "v" .. size .. ": no queue data loaded"))
+        end
+    end
+    function auto.leaveQueue(returnHome)
+        local joined = auto.joining
+        auto.joining = nil
+        if returnHome and joined and joined.character == me.Character and not matchContext() then teleport(joined.origin) end
+    end
+    function auto.queueTick()
+        if clock() >= auto.nextScan then auto.scanQueues() end
+        local _, _, root = body(me)
+        if not root then auto.status = "Waiting for lobby character"; return end
+        for _, row in ipairs(auto.queues) do
+            if row.mine then auto.status = "Queued: " .. row.object.Name .. " | waiting for round start"; return end
+        end
+        if auto.joining then
+            local attempt = auto.joining
+            if clock() - attempt.started > 8 or not attempt.queue.Parent then
+                auto.queueCooldowns[attempt.queue] = clock() + 15
+                auto.leaveQueue(true)
+                auto.status = "Queue entry not confirmed; trying another available queue"
+                return
+            end
+            local refreshed = attempt.queue:GetAttribute("TeleportPivot")
+            if tostring(typeof(refreshed)) == "CFrame" then attempt.destination = refreshed end
+            if clock() >= attempt.nextMove and (root.Position - attempt.destination.Position).Magnitude > 3 then
+                teleport(attempt.destination); attempt.nextMove = clock() + 2
+            end
+            auto.status = "Joining " .. attempt.queue.Name .. " | waiting for your slot to appear"
+            return
+        end
+        for _, row in ipairs(auto.queues) do
+            local mode = row.size .. "v" .. row.size
+            if (state.QueueMode == "Any populated" or state.QueueMode == mode) and row.count < row.capacity
+                and row.slots >= row.capacity and (row.count > 0 or state.JoinEmpty)
+                and tostring(typeof(row.destination)) == "CFrame" and clock() >= (auto.queueCooldowns[row.object] or 0) then
+                local origin = root.CFrame
+                -- Same destination and ordinary character movement used by QuickJoinHandler.
+                if teleport(row.destination) then
+                    auto.joining = { queue = row.object, destination = row.destination, origin = origin,
+                        character = me.Character, started = clock(), nextMove = clock() + 2 }
+                    auto.status = "Joining " .. row.object.Name .. " (" .. row.count .. "/" .. row.capacity .. ")"
+                else auto.status = "Waiting until your character can move" end
+                return
+            end
+        end
+        auto.status = "Waiting for a populated queue with space" .. (state.QueueMode ~= "Any populated" and (" | " .. state.QueueMode) or "")
+    end
+    function auto.stopHiding(returnHome)
+        local hide = auto.hide
+        auto.hide = nil
+        if not hide then return false end
+        hide.velocity:Destroy(); hide.attachment:Destroy()
+        local context = matchContext()
+        if returnHome and me.Character == hide.character and context and context.id == hide.gameId then teleport(hide.origin) end
+        return true
+    end
+    function auto.mapBounds(context)
+        local map = context and context.world and context.world:FindFirstChild("Map")
+        if not map then return nil end
+        if auto.bounds and auto.bounds.map == map then return auto.bounds end
+        local minimum, maximum
+        for _, object in ipairs(map:GetDescendants()) do
+            if object:IsA("BasePart") then
+                local p, r = object.Position, object.Size.Magnitude * 0.5
+                local low, high = p - Vector3.one * r, p + Vector3.one * r
+                minimum = minimum and Vector3.new(math.min(minimum.X, low.X), math.min(minimum.Y, low.Y), math.min(minimum.Z, low.Z)) or low
+                maximum = maximum and Vector3.new(math.max(maximum.X, high.X), math.max(maximum.Y, high.Y), math.max(maximum.Z, high.Z)) or high
+            end
+        end
+        if not minimum then return nil end
+        auto.bounds = { map = map, center = (minimum + maximum) * 0.5, radius = (maximum - minimum).Magnitude * 0.5 }
+        return auto.bounds
+    end
+    function auto.playerDistance(point)
+        local nearest = math.huge
+        for _, player in ipairs(Players:GetPlayers()) do
+            local character = player.Character
+            local root = character and character:FindFirstChild("HumanoidRootPart")
+            if player ~= me and root and root:IsA("BasePart") and root:IsDescendantOf(Workspace) then
+                nearest = math.min(nearest, (root.Position - point).Magnitude)
+            end
+        end
+        return nearest
+    end
+    function auto.hideTick(context)
+        local character, humanoid, root = body(me)
+        if not movable(character, humanoid, root) then auto.stopHiding(false); auto.status = "Baby: waiting until free to move"; return end
+        local bounds = auto.mapBounds(context)
+        if not bounds then auto.status = "Baby: waiting for map geometry"; return end
+        local clearance = math.max(400, state.HideDistance)
+        local hide = auto.hide
+        if hide and (hide.character ~= character or hide.gameId ~= context.id) then auto.stopHiding(false); hide = nil end
+        local point = hide and hide.point
+        if not point or auto.playerDistance(point) < clearance then
+            local radius = bounds.radius + clearance + 100
+            local y = math.max(root.Position.Y, bounds.center.Y + 30, (Workspace.FallenPartsDestroyHeight or -500) + 100)
+            point = nil
+            for step = 0, 15 do
+                local angle = step * math.pi / 8
+                local candidate = Vector3.new(bounds.center.X + math.cos(angle) * radius, y, bounds.center.Z + math.sin(angle) * radius)
+                if auto.playerDistance(candidate) >= clearance + 50 then point = candidate; break end
+            end
+            if not point then
+                -- Outside every player's horizontal radius guarantees the requested separation.
+                for _, player in ipairs(Players:GetPlayers()) do
+                    local other = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+                    if player ~= me and other and other:IsA("BasePart") then radius = math.max(radius, (other.Position - bounds.center).Magnitude + clearance + 100) end
+                end
+                point = Vector3.new(bounds.center.X + radius, y, bounds.center.Z)
+            end
+        end
+        if not hide then
+            local origin = root.CFrame
+            stopFlight()
+            local attachment = new("Attachment", { Name = "BTB_Hide" }, root)
+            local velocity = new("LinearVelocity", { Name = "BTB_HideHover", Attachment0 = attachment,
+                RelativeTo = Enum.ActuatorRelativeTo.World, MaxForce = math.huge, VectorVelocity = Vector3.zero }, root)
+            hide = { character = character, gameId = context.id, origin = origin, point = point, attachment = attachment, velocity = velocity }
+            auto.hide = hide
+        end
+        hide.point = point
+        if (root.Position - point).Magnitude > 2 then teleport(CFrame.new(point)) end
+        auto.status = string.format("Baby: hiding outside the map | nearest player %s studs", tostring(math.floor(auto.playerDistance(root.Position))))
+    end
+    local function besidePrompt(prompt, rangeOverride)
+        local position = promptPosition(prompt)
+        local _, _, root = body(me)
+        if not position or not root then return nil end
+        local away = (root.Position - position) * Vector3.new(1, 0, 1)
+        if away.Magnitude < 0.01 then away = Vector3.zAxis end
+        local range = rangeOverride or prompt.MaxActivationDistance
+        local reach = math.max(0.5, math.min(2.5, range * 0.5))
+        local location = position + away.Unit * reach
+        local ray = RaycastParams.new()
+        ray.FilterType = Enum.RaycastFilterType.Exclude
+        ray.FilterDescendantsInstances = { me.Character, effects }
+        local hit = Workspace:Raycast(location + Vector3.new(0, 4, 0), Vector3.new(0, -12, 0), ray)
+        if hit and hit.Normal.Y > 0.5 then
+            local _, humanoid = body(me)
+            local height = math.max(2, humanoid.HipHeight + root.Size.Y * 0.5)
+            local grounded = Vector3.new(location.X, hit.Position.Y + height, location.Z)
+            if (grounded - position).Magnitude < range then location = grounded end
+        end
+        return CFrame.lookAt(location, Vector3.new(position.X, location.Y, position.Z))
+    end
+
+    local function cachePrompt(object)
+        if object:IsA("ProximityPrompt") and not prompts[object] then
+            prompts[object] = { nextTry = 0, failures = 0 }
+        end
+        if object:GetAttribute("Name") == "Oven_Guide" then ovenGuides[object] = true end
+    end
+    local function refreshOvenGuides()
+        table.clear(ovenGuides)
+        for _, object in ipairs(CollectionService:GetTagged("Highlight")) do
+            if object:IsDescendantOf(Workspace) and object:GetAttribute("Name") == "Oven_Guide" then ovenGuides[object] = true end
+        end
+    end
+    connect(Workspace.DescendantAdded, cachePrompt)
+    connect(Workspace.DescendantRemoving, function(object)
+        ovenGuides[object] = nil
+        if prompts[object] then
+            if interaction and interaction.prompt == object then
+                -- Server can destroy a prompt immediately on success. Keep verification alive.
+                pcall(function() object:InputHoldEnd() end)
+                interaction.phase = "verify"
+                interaction.deadline = clock() + 2
+            end
+            restoreObject(leases.prompt, object)
+            prompts[object] = nil
+            if selectedOven == object then selectedOven = nil end
+        end
+    end)
+    for _, object in ipairs(Workspace:GetDescendants()) do cachePrompt(object) end
+
+    local function otherPrompt(prompt, context)
+        if not prompt.Parent or prompt:GetAttribute("PlayerToolsIgnore") == true
+            or characterOwner(prompt) or classify(prompt, context) then return false end
+        local name, action = words(prompt.Name), words(prompt.ActionText)
+        if includes(action, { "buy", "purchase", "donate", "catch", "rescue", "release", "baby" }) then return false end
+        if name == "mom" and role(me) ~= "Baker" or name == "baby" and role(me) ~= "Baby" then return false end
+        local activeWorlds = path(Workspace, "Games_Folder", "Active_Games")
+        if activeWorlds and prompt:IsDescendantOf(activeWorlds)
+            and (not context or not context.world or not prompt:IsDescendantOf(context.world)) then return false end
+        if trapContext(prompt, context) then return false end
+        return true
+    end
+    local function syncPrompts(context)
+        local _, _, root = body(me)
+        for prompt, promptRecord in pairs(prompts) do
+            local kind = classify(prompt, context)
+            local relevant = (kind == "grab" or kind == "oven") and role(me) == "Baker"
+                or kind == "rescue" and role(me) == "Baby"
+            if (relevant or otherPrompt(prompt, context)) and state.InstantPrompts
+                and prompt:GetAttribute("PlayerToolsIgnore") ~= true then writeProperty(leases.prompt, prompt, "HoldDuration", 0)
+            else restoreProperty(leases.prompt, prompt, "HoldDuration") end
+            if kind == "grab" and role(me) == "Baker" and state.ExpandPickup then
+                local record = leases.prompt[prompt]
+                local item = record and record.MaxActivationDistance
+                local original = item and item.original or prompt.MaxActivationDistance
+                if item and prompt.MaxActivationDistance ~= item.applied then original = prompt.MaxActivationDistance end
+                writeProperty(leases.prompt, prompt, "MaxActivationDistance", math.max(original, state.PickupRadius))
+            else restoreProperty(leases.prompt, prompt, "MaxActivationDistance") end
+            local position = promptPosition(prompt)
+            if not root or not position or (root.Position - position).Magnitude > prompt.MaxActivationDistance then
+                promptRecord.completed = false
+            end
+        end
+    end
+    local function usable(prompt, context, maxDistance, ignoreDistance, outsideMatch, planningTravel)
+        local character, _, root = body(me)
+        if not character or (not outsideMatch and not participant(me, context)) or restrained(character)
+            or character:GetAttribute("CantUseProximities") or character:GetAttribute("Server_CantUseProximities")
+            or not PromptService.Enabled or not prompt.Parent
+            or (not prompt.Enabled and not planningTravel)
+            or prompt:GetAttribute("PlayerToolsIgnore") == true
+            or prompt:GetAttribute("Disabled") or (prompt:GetAttribute("Obstructed") and not planningTravel)
+            or prompt:GetAttribute("Exclude") == me.Name then return nil end
+        local position, host = promptPosition(prompt)
+        if not position then return nil end
+        local distance = (root.Position - position).Magnitude
+        if ignoreDistance then return distance end
+        if distance > math.min(maxDistance or math.huge, prompt.MaxActivationDistance) then return nil end
+        if prompt.RequiresLineOfSight then
+            local camera = Workspace.CurrentCamera
+            if not camera then return nil end
+            local ray = RaycastParams.new()
+            ray.FilterType = Enum.RaycastFilterType.Exclude
+            ray.FilterDescendantsInstances = { character, effects }
+            local hit = Workspace:Raycast(camera.CFrame.Position, position - camera.CFrame.Position, ray)
+            if hit and hit.Instance ~= host and not hit.Instance:IsDescendantOf(host) then return nil end
+        end
+        return distance
+    end
+    local trappedNear
+    local function nearestPrompt(kind, context, maxDistance, ignoreDistance, planningTravel, allowedTargets)
+        local best, bestTarget, distance = nil, nil, math.huge
+        for prompt, record in pairs(prompts) do
+            local found, target = classify(prompt, context)
+            if found == "rescue" then target = target or trappedNear(prompt, context) end
+            if found == kind and clock() >= record.nextTry
+                and (kind ~= "oven" or selectedOven == nil or selectedOven == prompt) then
+                local targetCharacter = target and target.Character
+                local valid = kind ~= "grab" or (targetCharacter and not restrained(targetCharacter))
+                if kind == "rescue" then valid = targetCharacter and targetCharacter:GetAttribute("IsTrapped") end
+                if allowedTargets and not allowedTargets[target] then valid = false end
+                if valid then
+                    local d = usable(prompt, context, maxDistance, ignoreDistance, false, planningTravel)
+                    if d and d < distance then best, bestTarget, distance = prompt, target, d end
+                end
+            end
+        end
+        return best, bestTarget, distance
+    end
+
+    local lastHeld
+    local function heldBaby(context)
+        local character = me.Character
+        if not carrying(character) then lastHeld = nil; return nil end
+        local value = character:GetAttribute("Carries")
+        for _, player in ipairs(Players:GetPlayers()) do
+            local baby = body(player)
+            if baby and role(player) == "Baby" and relation(player, context) == "enemy"
+                and baby:GetAttribute("IsCarried") then
+                if player == lastHeld or value == player.Name or value == player.UserId
+                    or value == tostring(player.UserId) then return player end
+                for _, constraint in ipairs(baby:GetDescendants()) do
+                    if constraint:IsA("RigidConstraint") then
+                        local a, b = constraint.Attachment0, constraint.Attachment1
+                        if (a and a:IsDescendantOf(character)) or (b and b:IsDescendantOf(character)) then return player end
+                    end
+                end
+            end
+        end
+        return nil
+    end
+    trappedNear = function(prompt, context)
+        local position = promptPosition(prompt)
+        if not position then return nil end
+        local best, distance = nil, 14
+        for _, player in ipairs(Players:GetPlayers()) do
+            local character, _, root = body(player)
+            if character and role(player) == "Baby" and relation(player, context) == "ally"
+                and character:GetAttribute("IsTrapped") then
+                local d = (root.Position - position).Magnitude
+                if d < distance then best, distance = player, d end
+            end
+        end
+        return best
+    end
+    local function finishInteraction(success, message)
+        local active = interaction
+        if not active then return end
+        local record = prompts[active.prompt]
+        if record then
+            record.failures = success and 0 or record.failures + 1
+            record.nextTry = clock() + (success and 0.6 or math.min(8, 0.8 * 2 ^ math.min(record.failures, 4)))
+            if active.kind == "prompt" and success then record.completed = true; record.nextTry = clock() + 1 end
+        end
+        if success then
+            if active.kind == "grab" then stats.grabs += 1; lastHeld = active.target
+            elseif active.kind == "oven" then stats.deposits += 1; lastHeld = nil
+            elseif active.kind == "rescue" then stats.rescues += 1
+            elseif active.kind == "prompt" then stats.prompts += 1 end
+        else
+            stats.failedInputs += 1
+        end
+        local shouldReturn = active.kind ~= "oven" or state.ReturnAfterOven
+        releaseInput(shouldReturn)
+        nextAction = clock() + 0.45
+        local returnStatus = active.returned and " - returned" or active.returnHome and shouldReturn and " - return unavailable" or ""
+        setStatus(message .. returnStatus, success and 1.3 or 2.5)
+    end
+    local function sendPromptInput(active)
+        local prompt = active.prompt
+        active.phase = "hold"
+        active.holdEnds = clock() + math.max(0, prompt.HoldDuration) + 0.12
+        active.deadline = active.holdEnds + 3
+        if type(fireproximityprompt) == "function" then
+            active.thread = task.spawn(function()
+                local ok, err = pcall(fireproximityprompt, prompt)
+                if alive and interaction == active then
+                    active.sent, active.inputError = ok, not ok and tostring(err) or nil
+                end
+            end)
+        else
+            local ok, err = pcall(function() prompt:InputHoldBegin() end)
+            if not ok then active.inputError = tostring(err) end
+        end
+    end
+    local function rememberReturn(active, context)
+        local character, humanoid, root = body(me)
+        if not movable(character, humanoid, root) then return false end
+        local origin = root.CFrame
+        if state.UseSavedSpot and waypoint and waypoint.character == character and waypoint.gameId == (context and context.id) then
+            origin = waypoint.cframe
+        end
+        lastReturn = { character = character, gameId = context and context.id, cframe = origin }
+        active.returnHome = function()
+            local current = matchContext()
+            if active.character == me.Character and (current and current.id) == active.gameId then
+                active.returned = teleport(origin)
+                if active.returned then moveReadyAt = clock() + 0.35 end
+            end
+        end
+        return true
+    end
+    local function resetCatchAttempt(active)
+        if active.thread and coroutine.status(active.thread) ~= "dead" then pcall(task.cancel, active.thread) end
+        if active.prompt then pcall(function() active.prompt:InputHoldEnd() end) end
+        active.thread, active.sent, active.triggered, active.inputError = nil, nil, nil, nil
+        active.phase, active.startAt = "approach", clock() + 0.4
+    end
+    local function tickCatch(active, context)
+        local baby, _, babyRoot = body(active.target)
+        if not baby or baby ~= active.targetCharacter or active.target.Parent ~= Players
+            or role(me) ~= "Baker" or role(active.target) ~= "Baby" or relation(active.target, context) ~= "enemy"
+            or baby:GetAttribute("IsTrapped") then
+            finishInteraction(false, "Baby unavailable; catch stopped"); return
+        end
+        if baby:GetAttribute("IsCarried") then
+            -- The baby's flag can replicate before our Carries acknowledgement.
+            active.carriedAt = active.carriedAt or clock()
+            if clock() - active.carriedAt > 2.5 then finishInteraction(false, "Baby is carried; your hold was not confirmed") end
+            return
+        end
+        active.carriedAt = nil
+        local prompt = active.prompt
+        if not prompt or not prompt.Parent or not prompt:IsDescendantOf(baby) then
+            resetCatchAttempt(active)
+            prompt, active.prompt = nil, nil
+            for _, object in ipairs(baby:GetDescendants()) do
+                if object:IsA("ProximityPrompt") and classify(object, context) == "grab" then
+                    cachePrompt(object)
+                    prompt, active.prompt = object, object
+                    break
+                end
+            end
+        end
+        local range = 4
+        local settings = path(ReplicatedStorage, "General_Settings", "Catch_System", "Proximity")
+        local configured = settings and settings:GetAttribute("Distance")
+        if type(configured) == "number" and configured > 0 then range = configured end
+        if prompt then
+            local lease = leases.prompt[prompt]
+            local original = lease and lease.MaxActivationDistance
+            range = math.min(range, original and original.original or prompt.MaxActivationDistance)
+        end
+        if clock() >= active.nextMove then
+            local destination = prompt and besidePrompt(prompt, range) or CFrame.new(babyRoot.Position + Vector3.new(2, 0, 0))
+            if not destination or not teleport(destination) then finishInteraction(false, "Character cannot follow baby"); return end
+            active.nextMove = clock() + 0.05
+        end
+        local ready = prompt and usable(prompt, context, range)
+        if active.inputError then
+            resetCatchAttempt(active)
+            active.startAt = clock() + 1
+        elseif active.phase == "hold" and (active.triggered or active.sent or clock() >= active.holdEnds) then
+            pcall(function() prompt:InputHoldEnd() end)
+            active.phase, active.deadline = "verify", clock() + 2
+        elseif active.phase == "verify" and clock() >= active.deadline then
+            resetCatchAttempt(active)
+        end
+        if active.phase == "approach" and clock() >= active.startAt and ready then
+            active.attempts += 1
+            sendPromptInput(active)
+        end
+        local reason = not prompt and "waiting for Catch prompt"
+            or not PromptService.Enabled and "game prompts paused"
+            or active.character:GetAttribute("Server_CantUseProximities") and "game has blocked interactions"
+            or active.character:GetAttribute("CantUseProximities") and "character interactions paused"
+            or prompt:GetAttribute("Disabled") and "Catch prompt disabled by game"
+            or prompt:GetAttribute("Obstructed") and "Catch prompt obstructed"
+            or not prompt.Enabled and "Catch prompt not enabled"
+            or not ready and "waiting for prompt range / line of sight"
+            or active.phase == "verify" and "waiting for holding confirmation" or "following and catching"
+        setStatus(string.format("@%s: %s | attempt %d | H: stop", active.target.Name, reason, active.attempts))
+    end
+    local function startCatch(context)
+        if interaction or clock() < nextAction or clock() < moveReadyAt or carrying(me.Character) then return false end
+        local character, _, root = body(me)
+        if not character or not participant(me, context) then return false end
+        local target, distance = nil, math.huge
+        for _, player in ipairs(Players:GetPlayers()) do
+            local baby, _, babyRoot = body(player)
+            if baby and role(player) == "Baby" and relation(player, context) == "enemy" and not restrained(baby) then
+                local d = (root.Position - babyRoot.Position).Magnitude
+                if d < distance then target, distance = player, d end
+            end
+        end
+        if not target then return false end
+        local active = { kind = "grab", chase = true, target = target, targetCharacter = target.Character,
+            character = character, gameId = context.id, phase = "approach", startAt = clock() + 0.4,
+            nextMove = 0, attempts = 0 }
+        if not rememberReturn(active, context) then return false end
+        interaction = active
+        tickCatch(active, context)
+        return interaction == active
+    end
+    local function startInteraction(prompt, kind: string, target, context, travel: boolean?)
+        if interaction or clock() < nextAction or clock() < moveReadyAt
+            or not usable(prompt, context, nil, travel == true, kind == "prompt", travel) then return false end
+        if kind == "oven" and not carrying(me.Character) then return false end
+        if kind == "grab" and carrying(me.Character) then return false end
+        if kind == "rescue" then
+            target = target or trappedNear(prompt, context)
+            if not target then
+                prompts[prompt].nextTry = clock() + 2
+                return false
+            end
+        elseif kind == "oven" then target = heldBaby(context) end
+        local active = {
+            prompt = prompt, kind = kind, target = target,
+            targetCharacter = target and target.Character,
+            character = me.Character, gameId = context and context.id,
+            phase = "hold", started = clock(), deadline = clock() + math.max(0, prompt.HoldDuration) + 3,
+            holdEnds = clock() + math.max(0, prompt.HoldDuration) + 0.12,
+        }
+        if travel and not rememberReturn(active, context) then return false end
+        interaction = active
+        setStatus(kind == "grab" and "Grabbing nearby baby..." or kind == "oven" and "Placing held baby..."
+            or kind == "prompt" and ("Using prompt: " .. prompt.ActionText) or "Rescuing teammate...")
+        if travel then
+            local record = leases.prompt[prompt]
+            local saved = record and record.MaxActivationDistance
+            local reach = saved and saved.original or prompt.MaxActivationDistance
+            local settings = path(ReplicatedStorage, "General_Settings", "Catch_System", "Proximity")
+            local configured = settings and settings:GetAttribute("Distance")
+            if kind == "grab" and type(configured) == "number" and configured > 0 then reach = math.min(reach, configured) end
+            local distance = usable(prompt, context, nil, travel == true, false, travel)
+            if distance and (travel or distance > reach * 0.85) then
+                local destination = besidePrompt(prompt, reach)
+                local ok = destination and teleport(destination)
+                if not ok then finishInteraction(false, "Could not reach the target"); return false end
+                active.phase, active.startAt, active.deadline = "approach", clock() + 0.4, clock() + 2.4
+                active.approachRange = reach
+                setStatus(({ grab = "Catching baby...", rescue = "Saving baby from oven...", oven = "Putting baby in oven..." })[kind])
+                return true
+            end
+        end
+        sendPromptInput(active)
+        return true
+    end
+
+    function auto.ovenPosition(site)
+        local object = site.object
+        if not object or not object.Parent then return nil end
+        if object:IsA("ProximityPrompt") then return promptPosition(object) end
+        for guide in pairs(ovenGuides) do
+            if guide.Parent and guide.Parent.Parent == object and guide.Parent:IsA("BasePart") then return guide.Parent.Position end
+        end
+        for _, part in ipairs(object:GetDescendants()) do
+            if part:IsA("BasePart") and includes(words(part.Name), { "touchdetector", "depositpoint", "trigger" }) then return part.Position end
+        end
+        if object:IsA("Model") then return object:GetPivot().Position end
+        if object:IsA("BasePart") then return object.Position end
+        return nil
+    end
+    function auto.scanOvens(context)
+        auto.ovens, auto.ovenWorld, auto.nextOvenScan = {}, context and context.world, clock() + 0.75
+        if not context or not context.world then return end
+        local seen = {}
+        local function add(object)
+            if not object or seen[object] or not object:IsDescendantOf(context.world) or characterOwner(object) then return end
+            local site = { object = object }
+            if auto.ovenPosition(site) then seen[object] = true; table.insert(auto.ovens, site) end
+        end
+        local traps = path(context.world, "Map", "Resettable", "Traps")
+        for _, trap in ipairs(traps and traps:GetChildren() or {}) do
+            if trap:IsA("Model") or trap:IsA("BasePart") then add(trap) end
+        end
+        for guide in pairs(ovenGuides) do if guide.Parent then add(guide.Parent.Parent) end end
+        for prompt in pairs(prompts) do
+            if classify(prompt, context) == "oven" then
+                local covered = false
+                for object in pairs(seen) do if prompt:IsDescendantOf(object) then covered = true; break end end
+                if not covered then add(prompt) end
+            end
+        end
+    end
+    function auto.sitePrompt(site, context)
+        local best, distance = nil, math.huge
+        local position = auto.ovenPosition(site)
+        for prompt in pairs(prompts) do
+            if (prompt == site.object or prompt:IsDescendantOf(site.object)) and classify(prompt, context) == "oven"
+                and (not selectedOven or prompt == selectedOven) then
+                local p = promptPosition(prompt)
+                local d = p and position and (p - position).Magnitude or math.huge
+                if d < distance then best, distance = prompt, d end
+            end
+        end
+        return best
+    end
+    function auto.siteOccupied(site, context)
+        local position = auto.ovenPosition(site)
+        if not position then return true end
+        for guide in pairs(ovenGuides) do
+            if guide.Parent and guide.Parent.Parent == site.object and guide:GetAttribute("Blocked") then return true end
+        end
+        for _, player in ipairs(Players:GetPlayers()) do
+            local baby, _, root = body(player)
+            if baby and participant(player, context) and baby:GetAttribute("IsTrapped")
+                and ((root.Position - position).Magnitude < 12 or baby:GetAttribute("TrapName") == site.object.Name) then return true end
+        end
+        return false
+    end
+    function auto.startDelivery(context, travel)
+        if interaction or not carrying(me.Character) or clock() < nextAction or clock() < moveReadyAt then return false end
+        if auto.ovenWorld ~= (context and context.world) or clock() >= (auto.nextOvenScan or 0) then auto.scanOvens(context) end
+        local _, _, root = body(me)
+        if not root then return false end
+        local best, bestPrompt, distance = nil, nil, math.huge
+        for _, site in ipairs(auto.ovens) do
+            local position = auto.ovenPosition(site)
+            local prompt = auto.sitePrompt(site, context)
+            local allowed = not selectedOven or prompt == selectedOven
+            if prompt then allowed = allowed and usable(prompt, context, nil, travel, false, travel) ~= nil
+            elseif not travel then allowed = false end
+            if position and allowed and clock() >= (auto.ovenCooldowns[site.object] or 0) and not auto.siteOccupied(site, context) then
+                local d = (root.Position - position).Magnitude
+                if (prompt and not bestPrompt) or ((prompt ~= nil) == (bestPrompt ~= nil) and d < distance) then
+                    best, bestPrompt, distance = site, prompt, d
+                end
+            end
+        end
+        if not best then return false end
+        local active = { kind = "oven", delivery = true, site = best, prompt = bestPrompt,
+            character = me.Character, gameId = context.id, target = heldBaby(context),
+            phase = "approach", started = clock(), startAt = clock() + 0.4, attempts = 0,
+            nextMove = 0, travel = travel, trappedBefore = {} }
+        active.targetCharacter = active.target and active.target.Character
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player.Character and player.Character:GetAttribute("IsTrapped") then active.trappedBefore[player] = true end
+        end
+        if travel and not rememberReturn(active, context) then return false end
+        interaction = active
+        auto.tickDelivery(active, context)
+        return interaction == active
+    end
+    function auto.tickDelivery(active, context)
+        local position = auto.ovenPosition(active.site)
+        local holds = carrying(active.character)
+        if not holds then
+            local confirmed = false
+            for _, player in ipairs(Players:GetPlayers()) do
+                local baby, _, root = body(player)
+                if baby and participant(player, context) and baby:GetAttribute("IsTrapped") and not active.trappedBefore[player]
+                    and ((active.target == player and baby == active.targetCharacter)
+                        or (not active.target and position and (root.Position - position).Magnitude < 30)) then confirmed = true end
+            end
+            if confirmed then finishInteraction(true, "Baby confirmed in oven"); return end
+            active.carryLostAt = active.carryLostAt or clock()
+            if clock() - active.carryLostAt > 2 then finishInteraction(false, "Carry ended; oven placement was not confirmed") end
+            return
+        end
+        if not position or not context or not context.world or not active.site.object:IsDescendantOf(context.world) or role(me) ~= "Baker"
+            or restrained(active.character) then finishInteraction(false, "Oven or character unavailable"); return end
+        if clock() - active.started >= 7 then
+            auto.ovenCooldowns[active.site.object] = clock() + 8
+            finishInteraction(false, "Oven did not confirm placement; trying another oven"); return
+        end
+        local prompt = active.prompt
+        if not prompt or not prompt.Parent then
+            local discovered = auto.sitePrompt(active.site, context)
+            if discovered ~= prompt then
+                resetCatchAttempt(active)
+                active.prompt, prompt = discovered, discovered
+            end
+        end
+        if active.travel and clock() >= active.nextMove then
+            local destination
+            if prompt then destination = besidePrompt(prompt)
+            else
+                -- Runtime traps may use a touch trigger rather than a ProximityPrompt.
+                -- Approach their real geometry and require IsTrapped confirmation; no remote guessed.
+                local offset = active.attempts == 0 and Vector3.new(0, 0, 2) or active.attempts == 1 and Vector3.zero or Vector3.new(2, 0, 0)
+                destination = CFrame.lookAt(position + offset, position + Vector3.new(0, 0, -1))
+            end
+            if not destination or not teleport(destination) then finishInteraction(false, "Could not reach oven"); return end
+            active.nextMove = clock() + 0.3
+        end
+        if active.inputError then resetCatchAttempt(active); active.startAt = clock() + 1 end
+        if prompt then
+            if active.phase == "approach" and clock() >= active.startAt and usable(prompt, context) then
+                active.attempts += 1; sendPromptInput(active)
+            elseif active.phase == "hold" and (active.sent or active.triggered or clock() >= active.holdEnds) then
+                pcall(function() prompt:InputHoldEnd() end)
+                active.phase, active.deadline = "verify", clock() + 2
+            elseif active.phase == "verify" and clock() >= active.deadline then resetCatchAttempt(active) end
+            setStatus("Oven: " .. active.site.object.Name .. " | waiting for placement | attempt " .. active.attempts)
+        else
+            if clock() >= active.startAt then active.attempts = math.min(2, active.attempts + 1); active.startAt = clock() + 1.5 end
+            setStatus("Oven: " .. active.site.object.Name .. " | approaching trap geometry; waiting for placement")
+        end
+    end
+    connect(PromptService.PromptTriggered, function(prompt, player)
+        if player ~= me then return end
+        if interaction and interaction.prompt == prompt then interaction.triggered = true end
+    end)
+    local function tickInteraction(context)
+        local active = interaction
+        if not active then return end
+        if (context and context.id) ~= active.gameId or me.Character ~= active.character or not body(me) then
+            releaseInput(true); return
+        end
+        if active.delivery then auto.tickDelivery(active, context); return end
+        local holds = carrying(active.character)
+        local targetCharacter = active.targetCharacter
+        local targetValid = active.target and active.target.Parent == Players and active.target.Character == targetCharacter
+        if active.kind == "grab" and holds then
+            finishInteraction(true, "Baby held — ready for oven"); return
+        elseif active.kind == "oven" and not holds then
+            if not targetCharacter or (targetValid and targetCharacter:GetAttribute("IsTrapped")) then
+                finishInteraction(true, targetCharacter and "Baby placed in oven" or "Oven input finished; carry cleared")
+                return
+            end
+        elseif active.kind == "rescue" and targetValid and not targetCharacter:GetAttribute("IsTrapped") then
+            finishInteraction(true, "Teammate rescued"); return
+        end
+        if restrained(active.character) then
+            finishInteraction(false, "Interaction paused while carried or trapped"); return
+        end
+        if active.chase then tickCatch(active, context); return end
+        if active.inputError then
+            finishInteraction(false, "Prompt input failed: " .. active.inputError); return
+        end
+        if active.phase ~= "verify" then
+            if (active.kind == "grab" and (role(me) ~= "Baker" or not targetValid or relation(active.target, context) ~= "enemy"))
+                or (active.kind == "rescue" and (role(me) ~= "Baby" or not targetValid or relation(active.target, context) ~= "ally"))
+                or (active.kind == "oven" and role(me) ~= "Baker") then
+                finishInteraction(false, "Role or target changed; interaction cancelled"); return
+            end
+            if active.kind == "grab" and targetCharacter and restrained(targetCharacter) then
+                finishInteraction(false, "Target was already caught; interaction cancelled"); return
+            end
+        end
+        if active.phase == "approach" then
+            local distance = usable(active.prompt, context)
+            if clock() >= active.startAt and distance and distance <= active.approachRange then
+                sendPromptInput(active)
+            elseif clock() >= active.deadline then
+                finishInteraction(false, "Target unavailable after teleport")
+            end
+            return
+        end
+        if active.phase == "hold" then
+            local valid = usable(active.prompt, context, nil, false, active.kind == "prompt")
+            if active.kind == "prompt" and not otherPrompt(active.prompt, context) then valid = nil end
+            if not valid and active.prompt.Parent and not active.triggered and not active.sent then
+                finishInteraction(false, "Prompt moved out of reach or became unavailable"); return
+            end
+            if active.triggered or active.sent or clock() >= active.holdEnds then
+                pcall(function() active.prompt:InputHoldEnd() end)
+                if active.kind == "prompt" then
+                    finishInteraction(true, "Prompt input sent: " .. active.prompt.ActionText); return
+                end
+                active.phase, active.deadline = "verify", clock() + 2
+            end
+        end
+        if active.kind == "prompt" and active.phase == "verify" and (active.triggered or active.sent) then
+            finishInteraction(true, "Prompt input sent"); return
+        end
+        if clock() >= active.deadline then
+            finishInteraction(false, active.kind == "oven" and not holds
+                and "Carry cleared; oven placement unconfirmed" or "No game confirmation; input cooldown active")
+        end
+    end
+    local function otherPromptsTick(context)
+        if not state.AutoPrompts or interaction then return end
+        local best, distance = nil, math.huge
+        for prompt, record in pairs(prompts) do
+            if otherPrompt(prompt, context) and clock() >= record.nextTry and (state.RepeatPrompts or not record.completed)
+                and (not state.OnlyEPrompts or prompt.KeyboardKeyCode == Enum.KeyCode.E) then
+                local d = usable(prompt, context, nil, false, true)
+                if d and d < distance then best, distance = prompt, d end
+            end
+        end
+        if best then startInteraction(best, "prompt", nil, context) end
+    end
+    local function automationTick(context)
+        if (state.PauseUnfocused and not focused and not state.AutoRun) or Input:GetFocusedTextBox() then
+            if interaction and interaction.phase ~= "verify" then releaseInput(true) end
+            if interaction then tickInteraction(context) end
+            return
+        end
+        if interaction then tickInteraction(context); return end
+        if clock() < nextAction or clock() < moveReadyAt then return end
+        local character = body(me)
+        if state.AutoRun then
+            if not character then auto.stopHiding(false); auto.status = "Waiting for character"; return end
+            if not participant(me, context) then
+                auto.stopHiding(false)
+                if context then auto.status = "Round ending or spectating; waiting for lobby"
+                else auto.queueTick() end
+                return
+            end
+            auto.joining = nil
+            if role(me) == "Baby" then auto.hideTick(context); return end
+            auto.stopHiding(true)
+            auto.status = carrying(character) and "Baker: putting held baby into an oven" or "Baker: catching remaining enemy babies"
+        end
+        if not character or restrained(character) then return end
+        if not participant(me, context) then otherPromptsTick(context); return end
+        local myRole = role(me)
+        if myRole == "Baker" and carrying(character) then
+            if not (state.AutoOven or state.AutoRun) then otherPromptsTick(context); return end
+            if not auto.startDelivery(context, state.AutoRun or state.TravelToOven) then
+                if clock() >= statusUntil then setStatus("Holding baby — waiting for an available oven or trap in this match") end
+                return
+            end
+        elseif myRole == "Baker" then
+            if state.AutoGrab or state.AutoRun then
+                if not startCatch(context) and state.AutoRun then auto.status = "Baker: no free enemy babies; waiting for round result" end
+            end
+        elseif myRole == "Baby" and (state.AutoRescue or rescueBatch) then
+            local prompt, target = nearestPrompt("rescue", context, nil, true, true, rescueBatch)
+            if prompt then
+                if startInteraction(prompt, "rescue", target, context, true) and rescueBatch then rescueBatch[target] = nil end
+            elseif rescueBatch then
+                rescueBatch = nil
+                setStatus("Rescue sweep finished", 3)
+            end
+        end
+        otherPromptsTick(context)
+    end
+
+    local function requestAction(kind)
+        local wanted = kind == "rescue" and "Baby" or "Baker"
+        if role(me) ~= wanted then notify(wanted == "Baby" and "Use rescue while playing as a baby" or "Use this while playing as a baker"); return end
+        if interaction or clock() < nextAction or clock() < moveReadyAt then notify("An action is already running; H stops and returns"); return end
+        if kind == "grab" and carrying(me.Character) then notify("Already holding a baby"); return end
+        if kind == "oven" and not carrying(me.Character) then notify("Catch a baby first"); return end
+        local context = matchContext()
+        if not participant(me, context) then notify("Join an active round first"); return end
+        if kind == "grab" then
+            if not startCatch(context) then notify("No available enemy baby in this match, or character cannot move") end
+            return
+        end
+        if kind == "oven" then
+            if not auto.startDelivery(context, true) then notify("No available oven or trap loaded in your match; copy detection report") end
+            return
+        end
+        local prompt, target = nearestPrompt(kind, context, nil, true, true)
+        if not prompt then
+            notify(kind == "grab" and "No catchable baby found" or kind == "rescue" and "No trapped teammate with a rescue prompt" or "No usable oven found")
+            return
+        end
+        if not startInteraction(prompt, kind, target, context, true) then notify("Character or prompt is unavailable right now") end
+    end
+
+    local function makeOverlay(name)
+        local billboard = new("BillboardGui", {
+            Name = name, Enabled = true, AlwaysOnTop = true,
+            Size = UDim2.fromOffset(240, 44), StudsOffsetWorldSpace = Vector3.new(0, 3, 0),
+        }, effects)
+        local label = new("TextLabel", {
+            BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1),
+            TextColor3 = state.ESPColor, TextStrokeColor3 = Color3.new(0, 0, 0),
+            TextStrokeTransparency = 0.2, Font = Enum.Font.GothamMedium, TextSize = 12,
+            Text = "", RichText = false,
+        }, billboard)
+        return { billboard = billboard, label = label }
+    end
+    local function paintOverlay(overlay, target, root, color, text, withHighlight)
+        overlay.billboard.Adornee = root
+        overlay.label.TextColor3, overlay.label.Text = color, text
+        if withHighlight then
+            if not overlay.highlight then
+                overlay.highlight = new("Highlight", {
+                    Name = "BTB_ESP", DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+                    FillTransparency = 0.7, OutlineTransparency = 0,
+                }, effects)
+            end
+            overlay.highlight.Adornee = target
+            overlay.highlight.FillColor, overlay.highlight.OutlineColor = color, color
+        elseif overlay.highlight then
+            overlay.highlight:Destroy(); overlay.highlight = nil
+        end
+    end
+    local function updateESP(context)
+        local _, _, myRoot = body(me)
+        local visible, candidates = {}, {}
+        if state.ESP and myRoot then
+            for _, player in ipairs(Players:GetPlayers()) do
+                local character, humanoid, root = body(player)
+                if character and relation(player, context) == "enemy" then
+                    local distance = (root.Position - myRoot.Position).Magnitude
+                    if distance <= state.ESPDistance then
+                        table.insert(candidates, { player = player, character = character, humanoid = humanoid, root = root, distance = distance })
+                    end
+                end
+            end
+        end
+        table.sort(candidates, function(a, b) return a.distance < b.distance end)
+        for index, item in ipairs(candidates) do
+            local player = item.player
+            visible[player] = true
+            if not overlays[player] then overlays[player] = makeOverlay("BTB_Enemy_" .. player.UserId) end
+            local condition = item.character:GetAttribute("IsTrapped") and " | trapped"
+                or item.character:GetAttribute("IsCarried") and " | carried" or ""
+            local label = string.format("%s (@%s) · %s\n%d studs | %d HP%s", player.DisplayName, player.Name,
+                role(player) or "Opponent", math.floor(item.distance), math.floor(item.humanoid.Health), condition)
+            paintOverlay(overlays[player], item.character, item.character:FindFirstChild("Head") or item.root,
+                state.ESPColor, label, index <= 20)
+        end
+        for player, overlay in pairs(overlays) do
+            if not visible[player] then destroyOverlay(overlay); overlays[player] = nil end
+        end
+        local shownOvens, ovenCount = {}, 0
+        if state.OvenESP and myRoot then
+            if auto.ovenWorld ~= (context and context.world) or clock() >= (auto.nextOvenScan or 0) then auto.scanOvens(context) end
+            for _, site in ipairs(auto.ovens) do
+                    local object = site.object
+                    local position, host = auto.ovenPosition(site), nil
+                    if object:IsA("ProximityPrompt") then local _; _, host = promptPosition(object)
+                    elseif object:IsA("BasePart") then host = object
+                    else
+                        for _, part in ipairs(object:GetDescendants()) do if part:IsA("BasePart") then host = part; break end end
+                    end
+                    if position and host and (position - myRoot.Position).Magnitude <= state.ESPDistance then
+                        ovenCount += 1
+                        shownOvens[object] = true
+                        if not ovenOverlays[object] then ovenOverlays[object] = makeOverlay("BTB_Oven") end
+                        local label = string.format("Oven / trap · %d studs%s", math.floor((position - myRoot.Position).Magnitude),
+                            auto.siteOccupied(site, context) and " | occupied" or "")
+                        paintOverlay(ovenOverlays[object], host, host, Color3.fromRGB(255, 173, 75), label, ovenCount <= 4)
+                    end
+            end
+        end
+        for prompt, overlay in pairs(ovenOverlays) do
+            if not shownOvens[prompt] then destroyOverlay(overlay); ovenOverlays[prompt] = nil end
+        end
+    end
+    local function updateRange()
+        local _, _, root = body(me)
+        if not state.ShowPickupRange or not state.ExpandPickup or role(me) ~= "Baker" or not root then
+            if rangeBall then rangeBall:Destroy(); rangeBall = nil end
+            return
+        end
+        if not rangeBall then
+            rangeBall = new("Part", {
+                Name = "BTB_PickupRadius", Shape = Enum.PartType.Ball, Anchored = true,
+                CanCollide = false, CanTouch = false, CanQuery = false, CastShadow = false,
+                Transparency = 0.93, Material = Enum.Material.ForceField,
+                Color = Color3.fromRGB(255, 164, 74),
+            }, effects)
+        end
+        rangeBall.Size = Vector3.one * state.PickupRadius * 2
+        rangeBall.CFrame = CFrame.new(root.Position)
+    end
+    local function updateView()
+        if state.Fullbright then
+            for key, value in pairs({ Brightness = 2, ClockTime = 14, FogEnd = 100000,
+                Ambient = Color3.fromRGB(200, 200, 200), OutdoorAmbient = Color3.fromRGB(200, 200, 200) }) do
+                writeProperty(leases.lighting, Lighting, key, value)
+            end
+        else restoreAll(leases.lighting) end
+        local camera = Workspace.CurrentCamera
+        local stale = {}
+        for old in pairs(leases.camera) do if old ~= camera or not state.CustomFOV then table.insert(stale, old) end end
+        for _, old in ipairs(stale) do restoreObject(leases.camera, old) end
+        if state.CustomFOV and camera then writeProperty(leases.camera, camera, "FieldOfView", state.FOV) end
+    end
+    local function nearestPlayer(wantedRole, wantedSide)
+        local context, _, _, myRoot = matchContext(), body(me)
+        if not myRoot then return nil end
+        local best, distance = nil, math.huge
+        for _, player in ipairs(Players:GetPlayers()) do
+            local _, _, root = body(player)
+            if root and relation(player, context) == wantedSide and (not wantedRole or role(player) == wantedRole) then
+                local d = (root.Position - myRoot.Position).Magnitude
+                if d < distance then best, distance = player, d end
+            end
+        end
+        return best, distance
+    end
+    local function teleportToPlayer(player)
+        if not player or player == me or player.Parent ~= Players then notify("Select a player who is still in the server"); return end
+        local _, _, root = body(player)
+        if not root then notify("Target is not alive or streamed in"); return end
+        releaseInput(true); nextAction = clock() + 0.6
+        local ok, reason = teleport(root.CFrame * CFrame.new(3, 1, 0))
+        notify(ok and ("Moved beside @" .. player.Name) or reason)
+    end
+    local function alertTick()
+        if not state.BakerAlert or role(me) ~= "Baby" then alertTarget = nil; return end
+        local player, distance = nearestPlayer("Baker", "enemy")
+        if player and distance <= state.AlertRadius then
+            if player ~= alertTarget and clock() - lastAlert >= 5 then
+                notify(string.format("Baker nearby: @%s (%d studs)", player.Name, math.floor(distance)))
+                lastAlert, alertTarget = clock(), player
+            end
+        else alertTarget = nil end
+    end
+
+    local function refreshDropdowns(context, force)
+        local options, playerMap = { "None" }, {}
+        for _, player in ipairs(Players:GetPlayers()) do
+            local matchesSearch = playerSearch == "" or string.find(string.lower(player.Name), playerSearch, 1, true)
+                or string.find(string.lower(player.DisplayName), playerSearch, 1, true)
+            if player ~= me and matchesSearch and (playerScope == "All server players" or relation(player, context)) then
+                local label = string.format("%s (@%s) [%s]", player.DisplayName, player.Name, role(player) or "Player")
+                table.insert(options, label); playerMap[label] = player
+            end
+        end
+        table.sort(options, function(a, b) if a == b then return false elseif a == "None" then return true elseif b == "None" then return false else return a < b end end)
+        local signature = table.concat(options, "\n")
+        controller.PlayerOptions = playerMap
+        if playerDropdown and (force or signature ~= rosterSignature) then
+            rosterSignature = signature
+            playerDropdown:Refresh(options)
+            local selected = "None"
+            for label, player in pairs(playerMap) do if player == selectedPlayer then selected = label end end
+            playerDropdown:Set({ selected })
+        end
+        local ovenOptions, ovenMap = { "Automatic detection" }, {}
+        if context and context.world then
+            for prompt in pairs(prompts) do
+                if prompt:IsDescendantOf(context.world) and not characterOwner(prompt)
+                    and not includes(words(prompt.ActionText), { "buy", "purchase", "donate" }) then
+                    local relative = prompt:GetFullName():sub(#context.world:GetFullName() + 2)
+                    local base = string.format("%s | %s", relative, prompt.ActionText)
+                    local label, duplicate = base, 1
+                    while ovenMap[label] do duplicate += 1; label = base .. " [" .. duplicate .. "]" end
+                    ovenMap[label] = prompt; table.insert(ovenOptions, label)
+                end
+            end
+        end
+        table.sort(ovenOptions, function(a, b)
+            if a == b then return false elseif a == "Automatic detection" then return true elseif b == "Automatic detection" then return false else return a < b end
+        end)
+        controller.OvenOptions = ovenMap
+        local ovenSignature = table.concat(ovenOptions, "\n")
+        if ovenDropdown and (force or ovenSignature ~= promptSignature) then
+            promptSignature = ovenSignature
+            ovenDropdown:Refresh(ovenOptions)
+            local selected = "Automatic detection"
+            for label, prompt in pairs(ovenMap) do if prompt == selectedOven then selected = label end end
+            ovenDropdown:Set({ selected })
+        end
+    end
+    local function diagnostics()
+        local context = matchContext()
+        local lines = {
+            "Bake the Baby Admin Panel v4.2",
+            "Place: " .. tostring(game.PlaceId),
+            "Match: " .. (context and context.id or "none") .. " | Role: " .. roleText(me),
+            "Role mode: " .. roleMode .. " | Character.IsBaby: " .. tostring(me.Character and me.Character:GetAttribute("IsBaby"))
+                .. " | Player.IsBaby (not used): " .. tostring(me:GetAttribute("IsBaby")),
+            "Movement: speed " .. tostring(state.Speed) .. " / " .. state.WalkSpeed
+                .. " | jump " .. tostring(state.Jump) .. " / " .. state.JumpPower,
+            "Other prompt inputs sent: " .. stats.prompts,
+            "Carries: " .. tostring(me.Character and me.Character:GetAttribute("Carries")),
+            "Map: " .. (context and context.world and context.world:GetFullName() or "not replicated"),
+            "Action: " .. statusText .. " | Focused: " .. tostring(focused),
+            "Automation: " .. tostring(state.AutoRun) .. " | " .. auto.status,
+            "Input: " .. (type(fireproximityprompt) == "function" and "fireproximityprompt" or "InputHoldBegin / InputHoldEnd"),
+            string.format("Confirmed grabs: %d | deposits/carry clears: %d | rescues: %d | timeouts/errors: %d",
+                stats.grabs, stats.deposits, stats.rescues, stats.failedInputs),
+        }
+        auto.scanQueues(); auto.scanOvens(context)
+        for _, row in ipairs(auto.queues) do
+            table.insert(lines, string.format("[queue] %s %d/%d%s | %s", row.object.Name, row.count, row.capacity,
+                row.mine and " (you joined)" or "", table.concat(row.members, ", ")))
+        end
+        for _, site in ipairs(auto.ovens) do
+            local prompt = auto.sitePrompt(site, context)
+            table.insert(lines, "[oven target] " .. site.object:GetFullName() .. " | " .. (prompt and ("prompt=" .. prompt:GetFullName()) or "no deposit prompt; approach and verify trap state"))
+        end
+        local rows = {}
+        for prompt in pairs(prompts) do
+            local kind = classify(prompt, context)
+            if kind or (context and context.world and prompt:IsDescendantOf(context.world)) then
+                table.insert(rows, string.format("[%s] %s | action=%s | object=%s | title=%s | type=%s | enabled=%s | range=%.1f | blocked=%s | disabled=%s",
+                    kind or "unknown", prompt:GetFullName(), prompt.ActionText, prompt.ObjectText, tostring(prompt:GetAttribute("Title")),
+                    tostring(prompt:GetAttribute("Type")), tostring(prompt.Enabled), prompt.MaxActivationDistance,
+                    tostring(prompt:GetAttribute("Obstructed")), tostring(prompt:GetAttribute("Disabled"))))
+            end
+        end
+        table.sort(rows)
+        for i = 1, math.min(#rows, 60) do table.insert(lines, rows[i]) end
+        if #rows == 0 then table.insert(lines, "No match interaction prompts are currently visible.") end
+        return table.concat(lines, "\n")
+    end
+    controller.Diagnostics = diagnostics
+
+    local Window = Rayfield:CreateWindow({
+        Name = "Bake the Baby Admin Panel",
+        LoadingTitle = "Bake the Baby", LoadingSubtitle = "PlayerTools v4.2",
+        -- Rayfield uppercases string keys; named keys must use the EnumItem overload.
+        Icon = 0, ShowText = "Baby Admin", Theme = "AmberGlow", ToggleUIKeybind = Enum.KeyCode.RightShift,
+        DisableRayfieldPrompts = true,
+        ConfigurationSaving = { Enabled = true, FolderName = "BakeTheBabyAdmin", FileName = "PlayerTools_v4_1" },
+        Discord = { Enabled = false }, KeySystem = false,
+    })
+    local Babies = Window:CreateTab("Babies", "baby")
+    local Bakers = Window:CreateTab("Bakers", "flame")
+    local Misc = Window:CreateTab("Misc", "settings")
+    local Automation = Window:CreateTab("Automation", "repeat")
+
+    local function syncControls(key, value, origin)
+        syncingControls = true
+        for _, copy in ipairs(controlCopies[key] or {}) do if copy ~= origin then copy:Set(value) end end
+        syncingControls = false
+    end
+    local function registerControl(key, control)
+        if not controlCopies[key] then controlCopies[key] = {} end
+        table.insert(controlCopies[key], control)
+        controls[key] = controls[key] or control
+        return control
+    end
+    local function changeToggle(key, value, origin)
+        if not alive or syncingControls then return end
+        if key == "UseSavedSpot" and value then
+            local context = matchContext()
+            if not waypoint or waypoint.character ~= me.Character or waypoint.gameId ~= (context and context.id) then
+                value, origin = false, nil
+                notify("Save a return position first")
+            end
+        end
+        local changed = state[key] ~= value
+        state[key] = value == true
+        syncControls(key, state[key], origin)
+        if key == "AutoRun" and changed then
+            releaseInput(true)
+            if not value then auto.stopHiding(true); auto.leaveQueue(true) end
+            auto.status = value and "Starting; detecting lobby or current round" or "Stopped"
+            auto.nextScan, nextAction = 0, clock() + 0.5
+        end
+        local affectsAction = interaction and ((key == "AutoGrab" and not value and interaction.kind == "grab")
+            or (key == "AutoOven" and not value and interaction.kind == "oven")
+            or (key == "AutoRescue" and not value and interaction.kind == "rescue")
+            or ((key == "AutoPrompts" or key == "OnlyEPrompts") and interaction.kind == "prompt"))
+        if changed and affectsAction then
+            releaseInput(true); nextAction = clock() + 0.25
+        end
+        if key == "AutoRescue" and not value then rescueBatch = nil end
+        if key == "Fly" and not value then stopFlight() end
+        applyMovement(); syncPrompts(matchContext()); updateESP(matchContext()); updateView(); updateRange()
+    end
+    local function toggle(tab, key, name)
+        local control
+        control = tab:CreateToggle({
+            Name = name, CurrentValue = state[key], Flag = not controls[key] and key ~= "UseSavedSpot" and key ~= "AutoRun" and ("BTB3_" .. key) or nil,
+            Ext = controls[key] ~= nil,
+            Callback = function(value) changeToggle(key, value, control) end,
+        })
+        return registerControl(key, control)
+    end
+    local function slider(tab, key, name, minimum, maximum, increment, suffix)
+        local control
+        control = tab:CreateSlider({
+            Name = name, Range = { minimum, maximum }, Increment = increment, Suffix = suffix,
+            CurrentValue = state[key], Flag = not controls[key] and ("BTB3_" .. key) or nil,
+            Ext = controls[key] ~= nil,
+            Callback = function(value)
+                if not alive or syncingControls or type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then return end
+                state[key] = math.clamp(value, minimum, maximum)
+                syncControls(key, state[key], control)
+                if key == "WalkSpeed" and speedInput then speedInput:Set(tostring(state.WalkSpeed)) end
+                applyMovement(); syncPrompts(matchContext()); updateView(); updateRange()
+            end,
+        })
+        return registerControl(key, control)
+    end
+    local function button(tab, name, callback)
+        tab:CreateButton({ Name = name, Callback = function()
+            if not alive then return end
+            local ok, err = xpcall(callback, debug.traceback)
+            if not ok then warn("[Bake the Baby] " .. tostring(err)); notify("Action failed; details are in the console") end
+        end })
+    end
+    local function setToggle(key, enabled)
+        if controls[key] then controls[key]:Set(enabled) else changeToggle(key, enabled) end
+    end
+    local function pauseAutomation()
+        local active = interaction
+        local hadPosition = auto.hide ~= nil or auto.joining ~= nil
+        releaseInput(true)
+        setToggle("AutoRun", false)
+        setToggle("AutoGrab", false); setToggle("AutoOven", false); setToggle("AutoRescue", false)
+        setToggle("AutoPrompts", false)
+        rescueBatch = nil
+        local context = matchContext()
+        if not active and not hadPosition and lastReturn and lastReturn.character == me.Character and lastReturn.gameId == (context and context.id) then
+            teleport(lastReturn.cframe)
+        end
+        setStatus("Stopped and returned when possible", 3)
+    end
+    local function saveWaypoint()
+        local character, _, root = body(me)
+        if not root then notify("Wait for your character to spawn"); return end
+        local context = matchContext()
+        waypoint = { character = character, gameId = context and context.id, cframe = root.CFrame }
+        setToggle("UseSavedSpot", true)
+        notify("Return position saved")
+    end
+    local function returnToWaypoint()
+        local context = matchContext()
+        if not waypoint or waypoint.character ~= me.Character or waypoint.gameId ~= (context and context.id) then
+            notify("Save a return position in this life first"); return
+        end
+        releaseInput(true); nextAction = clock() + 0.6
+        local ok, reason = teleport(waypoint.cframe)
+        notify(ok and "Returned to saved position" or reason)
+    end
+
+    local function setSpeed(value)
+        local number = tonumber(value)
+        if not number or number ~= number or math.abs(number) == math.huge then
+            notify("Enter a speed from 1 to 250"); return
+        end
+        controls.WalkSpeed:Set(math.clamp(math.floor(number + 0.5), 1, 250))
+        setToggle("Speed", true)
+        if speedInput then speedInput:Set(tostring(state.WalkSpeed)) end
+    end
+    local shortcuts = {
+        { id = "Catch", name = "Catch and return", key = "O", action = true, run = function() requestAction("grab") end },
+        { id = "Rescue", name = "Save and return", key = "R", action = true, run = function() requestAction("rescue") end },
+        { id = "Oven", name = "Oven and return", key = "L", action = true, run = function() requestAction("oven") end },
+        { id = "Stop", name = "Stop and return", key = "H", action = true, run = pauseAutomation },
+    }
+    for _, entry in ipairs({ { "ESP", "K" }, { "InfiniteJump", "J" }, { "Noclip", "N" },
+        { "AutoPrompts", "P" }, { "InstantPrompts", "I" }, { "Speed", "F" }, { "Fly", "G" } }) do
+        local key = entry[1]
+        table.insert(shortcuts, { id = key, name = "Toggle " .. key, key = entry[2], run = function() setToggle(key, not state[key]) end })
+    end
+    connect(Input.InputBegan, function(input, processed)
+        if not alive or Input:GetFocusedTextBox() then return end
+        for _, shortcut in ipairs(shortcuts) do
+            if input.KeyCode == Enum.KeyCode[shortcut.key] then
+                -- Camera/game bindings can consume O before InputBegan reaches us.
+                -- Explicit actions still run; typing and ordinary consumed toggles do not.
+                if processed and not shortcut.action then return end
+                if state.PauseUnfocused and not focused and not shortcut.action then return end
+                if shortcut.action then focused = true end
+                local ok, err = xpcall(shortcut.run, debug.traceback)
+                if not ok then warn("[Bake the Baby] " .. tostring(err)); notify("Action failed; check diagnostics") end
+                break
+            end
+        end
+    end)
+
+    babyStatus = Babies:CreateLabel("Your role: waiting")
+    button(Babies, "Save closest baby [R]", function() requestAction("rescue") end)
+    toggle(Babies, "AutoRescue", "Auto save trapped babies")
+    button(Babies, "Save all trapped babies once", function()
+        if role(me) ~= "Baby" then notify("Use rescue while playing as a baby"); return end
+        if interaction then notify("Finish the current action first, or press H"); return end
+        local context = matchContext()
+        local targets = {}
+        for _, player in ipairs(Players:GetPlayers()) do
+            local character = body(player)
+            if character and role(player) == "Baby" and relation(player, context) == "ally" and character:GetAttribute("IsTrapped") then targets[player] = true end
+        end
+        if not next(targets) then notify("No trapped teammates found"); return end
+        rescueBatch = targets
+        setStatus("Saving trapped teammates one at a time...", 2)
+    end)
+    Babies:CreateSection("Survival")
+    toggle(Babies, "Noclip", "Noclip [N]")
+    toggle(Babies, "InfiniteJump", "Infinite jump [J]")
+    toggle(Babies, "BakerAlert", "Warn when a baker is near")
+    button(Babies, "Stop and return [H]", pauseAutomation)
+    babyActionLabel = Babies:CreateLabel("Rescue teleports to the oven, saves, then returns.")
+
+    bakerStatus = Bakers:CreateLabel("Your role: waiting")
+    button(Bakers, "Catch closest baby [O]", function() requestAction("grab") end)
+    toggle(Bakers, "AutoOven", "Auto put held baby in oven")
+    toggle(Bakers, "AutoGrab", "Auto catch babies")
+    button(Bakers, "Put held baby in oven [L]", function() requestAction("oven") end)
+    carryLabel = Bakers:CreateLabel("Holding: no baby")
+    detectionLabel = Bakers:CreateLabel("Detected interaction prompts: waiting")
+    button(Bakers, "Rescan ovens", function()
+        for _, object in ipairs(Workspace:GetDescendants()) do cachePrompt(object) end
+        refreshOvenGuides()
+        local context = matchContext()
+        auto.scanOvens(context)
+        refreshDropdowns(context, true)
+        local count = 0
+        for prompt in pairs(prompts) do if classify(prompt, context) == "oven" then count += 1 end end
+        notify(#auto.ovens > 0 and ("Found " .. #auto.ovens .. " ovens/traps and " .. count .. " deposit prompts") or "No oven targets loaded in this match. Copy detection report for details.")
+    end)
+    button(Bakers, "Copy detection report", function()
+        if type(setclipboard) == "function" then setclipboard(diagnostics()); notify("Detection report copied")
+        else print(diagnostics()); notify("Detection report printed to console") end
+    end)
+    Bakers:CreateSection("Tools")
+    toggle(Bakers, "Noclip", "Noclip [N]")
+    toggle(Bakers, "OvenESP", "Show ovens")
+    button(Bakers, "Stop and return [H]", pauseAutomation)
+    bakerActionLabel = Bakers:CreateLabel("O follows one baby until caught, then returns. H cancels.")
+
+    Automation:CreateSection("Round automation")
+    toggle(Automation, "AutoRun", "Run automation")
+    Automation:CreateDropdown({ Name = "Game size", Options = { "Any populated", "1v1", "2v2", "3v3", "4v4", "5v5" },
+        CurrentOption = { state.QueueMode }, MultipleOptions = false, Flag = "BTB42_QueueMode",
+        Callback = function(options)
+            local choice = options[1]
+            if choice ~= "Any populated" and not table.find({ "1v1", "2v2", "3v3", "4v4", "5v5" }, choice) then return end
+            if state.QueueMode ~= choice then auto.leaveQueue(true) end
+            state.QueueMode, auto.nextScan = choice, 0
+        end })
+    toggle(Automation, "JoinEmpty", "Allow joining an empty queue")
+    slider(Automation, "HideDistance", "Baby distance from all players", 400, 1500, 50, "studs")
+    auto.label = Automation:CreateLabel("Stopped")
+    Automation:CreateLabel("Baby: hide outside map and hover. Baker: catch, oven, repeat.")
+    Automation:CreateLabel("Automation continues when unfocused. H stops it and returns when possible.")
+    button(Automation, "Stop automation and return [H]", pauseAutomation)
+    Automation:CreateSection("Who is waiting to play")
+    for size = 1, 5 do auto.queueLabels[size] = Automation:CreateLabel(size .. "v" .. size .. ": loading") end
+    button(Automation, "Refresh queues", auto.scanQueues)
+    button(Automation, "Copy automation report", function()
+        if type(setclipboard) == "function" then setclipboard(diagnostics()); notify("Automation report copied")
+        else print(diagnostics()); notify("Automation report printed to console") end
+    end)
+
+    Misc:CreateSection("Movement")
+    toggle(Misc, "Speed", "Speed [F]")
+    slider(Misc, "WalkSpeed", "Walk speed", 1, 250, 1, "studs/s")
+    toggle(Misc, "Jump", "Higher jump")
+    slider(Misc, "JumpPower", "Jump power", 25, 250, 5, "power")
+    toggle(Misc, "Fly", "Fly [G]")
+    slider(Misc, "FlySpeed", "Flight speed", 10, 200, 5, "studs/s")
+    toggle(Misc, "ESP", "Opponent ESP [K]")
+    toggle(Misc, "Fullbright", "Fullbright")
+    Misc:CreateSection("Return spot")
+    button(Misc, "Save current position", saveWaypoint)
+    toggle(Misc, "UseSavedSpot", "Return to saved spot after actions")
+    button(Misc, "Return to saved position", returnToWaypoint)
+    Misc:CreateSection("Panel")
+    matchLabel = Misc:CreateLabel("Match: waiting")
+    statusLabel = Misc:CreateLabel("Ready")
+    local advancedShown = false
+    button(Misc, "More tools and settings", function()
+        if advancedShown then notify("Extra tools are below this button"); return end
+        advancedShown = true
+        Misc:CreateSection("Extra speed tools")
+        speedInput = Misc:CreateInput({ Name = "Type walk speed (1-250)", CurrentValue = tostring(state.WalkSpeed),
+            PlaceholderText = "32", RemoveTextAfterFocusLost = false, Ext = true,
+            Callback = function(value) if alive and tostring(state.WalkSpeed) ~= value then setSpeed(value) end end })
+        button(Misc, "Speed -4", function() setSpeed(state.WalkSpeed - 4) end)
+        button(Misc, "Speed +4", function() setSpeed(state.WalkSpeed + 4) end)
+        for _, value in ipairs({ 16, 32, 64, 100 }) do
+            local preset = value
+            button(Misc, "Speed preset: " .. preset, function() setSpeed(preset) end)
+        end
+        button(Misc, "Restore game speed and jump", function()
+            setToggle("Speed", false); setToggle("Jump", false); setToggle("InfiniteJump", false)
+        end)
+        Misc:CreateSection("Pickup and oven options")
+        toggle(Misc, "ExpandPickup", "Pickup hitbox expander")
+        slider(Misc, "PickupRadius", "Pickup radius", 4, 75, 1, "studs")
+        toggle(Misc, "ShowPickupRange", "Show pickup area")
+        toggle(Misc, "TravelToOven", "Auto oven can teleport")
+        toggle(Misc, "ReturnAfterOven", "Return after automatic oven delivery")
+        ovenDropdown = Misc:CreateDropdown({
+            Name = "Oven prompt", Options = { "Automatic detection" }, CurrentOption = { "Automatic detection" }, MultipleOptions = false,
+            Callback = function(options)
+                local nextOven = controller.OvenOptions and controller.OvenOptions[options[1]]
+                if nextOven ~= selectedOven then releaseInput(true) end
+                selectedOven = nextOven
+            end,
+        })
+        button(Misc, "Refresh oven and player lists", function() refreshDropdowns(matchContext(), true); notify("Lists refreshed") end)
+        Misc:CreateSection("View and interaction")
+        slider(Misc, "AlertRadius", "Baker alert distance", 10, 120, 5, "studs")
+        slider(Misc, "ESPDistance", "ESP distance", 100, 5000, 100, "studs")
+        Misc:CreateColorPicker({ Name = "Opponent ESP color", Color = state.ESPColor, Flag = "BTB3_ESPColor",
+            Callback = function(color) if alive then state.ESPColor = color; updateESP(matchContext()) end end })
+        toggle(Misc, "InstantPrompts", "Instant prompts [I]")
+        toggle(Misc, "AutoPrompts", "Auto other proximity prompts [P]")
+        toggle(Misc, "OnlyEPrompts", "Auto prompts: E key only")
+        toggle(Misc, "RepeatPrompts", "Repeat prompts while in range")
+        toggle(Misc, "CustomFOV", "Custom camera FOV")
+        slider(Misc, "FOV", "Field of view", 50, 120, 1, "degrees")
+        toggle(Misc, "PauseUnfocused", "Pause when window loses focus")
+        Misc:CreateSection("Player teleport")
+        Misc:CreateInput({ Name = "Search players", PlaceholderText = "Username or display name", RemoveTextAfterFocusLost = false,
+            Callback = function(value)
+                if not alive then return end
+                playerSearch = string.lower(tostring(value)):match("^%s*(.-)%s*$")
+                refreshDropdowns(matchContext(), true)
+            end })
+        Misc:CreateDropdown({ Name = "Player list scope", Options = { "All server players", "Current match only" },
+            CurrentOption = { "All server players" }, MultipleOptions = false,
+            Callback = function(options) playerScope = options[1]; refreshDropdowns(matchContext(), true) end })
+        playerDropdown = Misc:CreateDropdown({
+            Name = "Selected player", Options = { "None" }, CurrentOption = { "None" }, MultipleOptions = false,
+            Callback = function(options) selectedPlayer = controller.PlayerOptions and controller.PlayerOptions[options[1]] end,
+        })
+        button(Misc, "Teleport beside selected player", function() teleportToPlayer(selectedPlayer) end)
+        button(Misc, "Refresh players", function() refreshDropdowns(matchContext(), true) end)
+        Misc:CreateSection("Shortcuts")
+        for _, value in ipairs(shortcuts) do
+            local shortcut = value
+            Misc:CreateKeybind({ Name = shortcut.name .. " key", CurrentKeybind = shortcut.key, HoldToInteract = false,
+                CallOnChange = true, Flag = "BTB4_" .. shortcut.id .. "Key",
+                Callback = function(key)
+                    if type(key) ~= "string" then return end
+                    local ok, code = pcall(function() return Enum.KeyCode[key] end)
+                    if ok and code ~= Enum.KeyCode.Unknown then shortcut.key = key end
+                end })
+        end
+        Misc:CreateSection("Diagnostics")
+        roleDropdown = Misc:CreateDropdown({
+            Name = "Your role", Options = { "Automatic", "Baby", "Baker / Adult" }, CurrentOption = { "Automatic" }, MultipleOptions = false,
+            Callback = function(options)
+                local selected = options[1]
+                roleMode = selected == "Baby" and "Baby" or selected == "Baker / Adult" and "Baker" or "Automatic"
+                releaseInput(true); rescueBatch = nil; restoreAll(leases.prompt)
+                syncPrompts(matchContext()); updateESP(matchContext()); updateRange()
+            end,
+        })
+        button(Misc, "Print interaction diagnostics", function() print(diagnostics()); notify("Details printed to the console") end)
+        button(Misc, "Copy interaction diagnostics", function()
+            if type(setclipboard) == "function" then setclipboard(diagnostics()); notify("Diagnostics copied")
+            else print(diagnostics()); notify("Diagnostics printed to console") end
+        end)
+        refreshDropdowns(matchContext(), true)
+        pcall(function() Rayfield:LoadConfiguration() end)
+        notify("Extra tools added below")
+    end)
+    button(Misc, "Turn off all features", function()
+        pauseAutomation()
+        for key, value in pairs(state) do if type(value) == "boolean" and key ~= "PauseUnfocused" then setToggle(key, false) end end
+        notify("Features off; original values restored")
+    end)
+    button(Misc, "Unload panel and restore everything", cleanup)
+    Misc:CreateLabel("O: catch | R: save | L: oven | H: stop and return")
+    Misc:CreateLabel("Right Shift: UI | F: speed | J: jump | N: noclip | G: fly")
+
+    local function updateLabels(context)
+        if not alive then return end
+        local myRole = role(me) or "waiting"
+        local roleLabel = "Your role: " .. roleText(me) .. " | " .. (roleMode == "Automatic" and "auto detected" or "manual selection")
+        matchLabel:Set("Match: " .. (context and context.id or "lobby") .. " | " .. roleLabel)
+        babyStatus:Set(roleLabel)
+        bakerStatus:Set(roleLabel)
+        local held = carrying(me.Character)
+        local target = held and heldBaby(context)
+        carryLabel:Set(held and ("Holding a baby: YES" .. (target and (" (@" .. target.Name .. ")") or "")) or "Holding a baby: no")
+        local counts = { grab = 0, oven = 0, rescue = 0 }
+        for prompt in pairs(prompts) do
+            local kind = classify(prompt, context)
+            if kind then counts[kind] += 1 end
+        end
+        if auto.ovenWorld ~= (context and context.world) or clock() >= (auto.nextOvenScan or 0) then auto.scanOvens(context) end
+        if detectionLabel then detectionLabel:Set(string.format("Detected: %d pickup / %d ovens or traps / %d deposit / %d rescue prompts", counts.grab, #auto.ovens, counts.oven, counts.rescue)) end
+        if auto.label then auto.label:Set(state.AutoRun and (interaction and ("Role: " .. roleText(me) .. " | " .. statusText) or auto.status) or "Stopped") end
+        if clock() >= statusUntil and not interaction then
+            if not context or not participant(me, context) then statusText = "No active match - movement and other prompts available"
+            elseif myRole == "Baker" and held then
+                statusText = state.AutoOven and (counts.oven > 0 and "Baby held — finding an available oven" or "Baby held — waiting for an oven prompt")
+                    or "Baby held — auto oven is off"
+            elseif myRole == "Baker" and state.AutoGrab then statusText = "Auto catch: waiting for an available enemy baby"
+            elseif myRole == "Baby" and state.AutoRescue then statusText = "Auto save: waiting for a trapped teammate"
+            else statusText = "Ready" end
+        end
+        if statusText ~= lastStatus then
+            statusLabel:Set(statusText); babyActionLabel:Set(statusText); bakerActionLabel:Set(statusText); lastStatus = statusText
+        end
+    end
+    local failedSubsystems = {}
+    local function guarded(name, callback)
+        if failedSubsystems[name] then return end
+        local ok, err = xpcall(callback, debug.traceback)
+        if not ok then
+            failedSubsystems[name] = true
+            warn("[Bake the Baby / " .. name .. "] " .. tostring(err))
+            if name == "automation" then releaseInput(true) end
+            notify(name .. " paused after an error; details are in the console")
+        end
+    end
+    local fastTimer, viewTimer, slowTimer = 0, 0, 0
+    connect(RunService.Heartbeat, function(dt)
+        if not alive then return end
+        fastTimer += dt; viewTimer += dt; slowTimer += dt
+        local context = matchContext()
+        if fastTimer >= 0.1 then
+            fastTimer = 0
+            guarded("movement", applyMovement)
+            guarded("automation", function() syncPrompts(context); automationTick(context) end)
+            updateRange()
+        elseif interaction and interaction.chase and clock() >= interaction.nextMove then
+            -- Follow at up to 20 Hz without increasing full scans or pickup retry frequency.
+            guarded("automation", function() automationTick(context) end)
+        end
+        if viewTimer >= 0.2 then
+            viewTimer = 0
+            guarded("ESP", function() updateESP(context) end)
+        end
+        if slowTimer >= 0.75 then
+            slowTimer = 0
+            guarded("queue detection", auto.scanQueues)
+            guarded("oven detection", refreshOvenGuides)
+            guarded("view", updateView)
+            guarded("status", function() updateLabels(context); refreshDropdowns(context); alertTick() end)
+        end
+    end)
+    -- All controls exist before persisted values can invoke their callbacks.
+    pcall(function() Rayfield:LoadConfiguration() end)
+    refreshDropdowns(matchContext(), true)
+    syncPrompts(matchContext())
+    updateESP(matchContext())
+    updateLabels(matchContext())
+    notify("Ready - O: catch, R: save, L: oven. Each action returns you.")
+    return controller
+end
+
+-- BOOTSTRAP
+local storage = type(getgenv) == "function" and getgenv() or _G
+local previous = storage.BakeTheBabyAdmin
+if type(previous) == "table" and type(previous.Shutdown) == "function" then pcall(previous.Shutdown) end
+local localPlayer = game:GetService("Players").LocalPlayer
+local playerGui = localPlayer and localPlayer:FindFirstChild("PlayerGui")
+if playerGui then
+    for _, name in ipairs({ "PlayerTools", "BakeTheBabyAdminRuntime" }) do
+        local old = playerGui:FindFirstChild(name)
+        local stop = old and old:FindFirstChild("Shutdown")
+        if stop and stop:IsA("BindableFunction") then pcall(function() stop:Invoke() end) end
+    end
+end
+assert(type(loadstring) == "function", "Rayfield needs loadstring in a compatible client script runner.")
+local loaded, Rayfield = pcall(function()
+    local source = game:HttpGet("https://sirius.menu/rayfield")
+    local chunk, compileError = loadstring(source)
+    assert(chunk, compileError)
+    return chunk()
+end)
+assert(loaded and type(Rayfield) == "table" and type(Rayfield.CreateWindow) == "function",
+    "Could not load Rayfield: " .. tostring(Rayfield))
+local ok, result = xpcall(function() return createPanel(Rayfield, storage) end, debug.traceback)
+if not ok then
+    local partial = storage.BakeTheBabyAdmin
+    if partial then pcall(partial.Shutdown) end
+    error("Bake the Baby Admin Panel failed to start:\n" .. tostring(result))
+end
+return result
